@@ -1,0 +1,52 @@
+name: Windows release
+# Build-only and manual: publishing a release is done by hand by the project owner, never by this workflow.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+    concurrency:
+      group: windows-build-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: tools/requirements-setup.txt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-release
+          cache-on-failure: true
+      # Cargo's dependency cache excludes our vendored Bevy crates. Cache their
+      # compiler outputs by content as well, independent of checkout timestamps.
+      - uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Check isolated asset refresh and failure recovery
+        run: python -m unittest tools.asset_pipeline.test_versions -v
+      - name: Build Windows package
+        shell: pwsh
+        env:
+          RELEASE_TAG: development
+          RUSTC_WRAPPER: sccache
+        run: ./scripts/Build-Release.ps1
+      - name: Report compiler cache hits
+        if: always()
+        shell: pwsh
+        run: sccache --show-stats
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skate3-remaster-release
+          retention-days: 7
+          path: |
+            target/release-out/game.zip
+            target/release-out/game.zip.sha256
+            target/release-out/Skate3Remaster-launcher.zip
+            target/release-out/Skate3Remaster-launcher.zip.sha256
+            target/release-out/release.json

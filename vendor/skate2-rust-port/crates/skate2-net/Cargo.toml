@@ -1,0 +1,10 @@
+[package]
+name = "skate2-net"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Offline stub of the port's skate2-net: the port's codec/protocol/frames/range files unmodified, client/crypto replaced by offline stubs (no sockets, no crypto crates)."
+
+[lib]
+path = "src/lib.rs"

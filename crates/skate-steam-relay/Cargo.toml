@@ -1,0 +1,16 @@
+[package]
+name = "skate-steam-relay"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "skate-steam-relay"
+path = "src/main.rs"
+
+[dependencies]
+steamworks = { version = "=0.13.1", features = ["raw-bindings"] }
+skate-net = { path = "../skate-net" }
+# ShellExecuteW for steam:// pages (presence.rs open): no cmd.exe parser in the way. The process calls watch the game
+# that started us (audit 10-28 #5).
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

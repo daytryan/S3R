@@ -1,0 +1,51 @@
+[workspace]
+members = ["crates/skate-core", "crates/skate-data", "crates/skate-game", "crates/skate-mods", "crates/skate-vehicles", "crates/skate-net", "crates/skate-steam-relay", "crates/skate-audio-formats", "crates/skate-audio-core", "crates/skate-launcher", "crates/skate2-physics-protocol", "crates/skate-voice"]
+resolver = "3"
+exclude = ["vendor/skate2-rust-port"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+bevy = { version = "=0.18.1" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+skate-core = { path = "crates/skate-core" }
+skate-data = { path = "crates/skate-data" }
+skate-audio-formats = { path = "crates/skate-audio-formats" }
+skate-audio-core = { path = "crates/skate-audio-core" }
+skate-voice = { path = "crates/skate-voice" }
+
+[profile.dev]
+opt-level = 3
+
+[profile.release]
+debug = 1
+strip = false
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# Test compiles of the game crate (user 10-22: faster story-mode turnaround). Release and dist builds are unaffected.
+[profile.dev.package.skate-game]
+opt-level = 1
+
+[patch.crates-io]
+bevy_pbr = { path = "vendor/bevy_pbr" }
+bevy_core_pipeline = { path = "vendor/bevy_core_pipeline" }
+bevy_sprite_render = { path = "vendor/bevy_sprite_render" }
+bevy_render = { path = "vendor/bevy_render" }
+bevy_camera = { path = "vendor/bevy_camera" }
+bevy_render_macros = { path = "vendor/bevy_render_macros" }
+dlss_wgpu = { path = "vendor/dlss_wgpu" }
+wgpu-hal = { path = "vendor/wgpu-hal" }
+# Voice chat (user 10-26): Settings > Audio's Output Device opens the named device at startup (vendor/README.md).
+bevy_audio = { path = "vendor/bevy_audio" }
+
+# Shipping build: cross-crate LTO and one codegen unit. Slower to compile than release.
+[profile.dist]
+inherits = "release"
+lto = "thin"
+codegen-units = 1

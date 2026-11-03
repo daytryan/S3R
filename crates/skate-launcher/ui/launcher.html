@@ -1,0 +1,1380 @@
+<title>S3R Launcher</title>
+<style>
+/* layout (redesign 10-13, concept v8): icon rail + one pane. Play is the whole pane: grip tape, the wordmark and the one
+   button bottom left over the coping, a panel top right that shows what matters now. Files, Settings and Help scroll. */
+:root {
+  --grip: #131417; --deck: #1b1d21; --deck-2: #22252a; --deck-3: #2a2d33; --rail: #0e0f12;
+  --line: #2c2f36; --line-2: #3b3f47; --chalk: #ecebe5; --dust: #a3a6ad; --dust-2: #7d818a;
+  --coping: #f4c234; --coping-hi: #f8d15a; --coping-ink: #1b1505; --coping-dark: #c99a1c;
+  --ok: #7ccf8b; --warn: #ef9a5e; --bad: #ee6666;
+  --metal-hi: #d9dbe0; --metal-lo: #5d6169; --ply: #c8955a; --grip-face: #34373e; --shadow: #000;
+  --display: "Big Shoulders Display", Bahnschrift, "Arial Narrow", Impact, sans-serif;
+  --body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", "Cascadia Mono", ui-monospace, Consolas, monospace;
+  --out: cubic-bezier(.22, 1, .36, 1);
+  --grip-tex: none;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--grip); color: var(--chalk); font: 15px/1.5 var(--body); overflow: hidden; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 2px solid var(--coping); outline-offset: 2px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+h1:focus { outline: none; }
+p { margin: 0; }
+[hidden] { display: none !important; }
+
+/* Motion says something changed; nothing moves at rest (critique 2026-10-09). */
+.view.enter { animation: enter .2s var(--out); }
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } }
+.swap { animation: fade .18s var(--out); }
+@keyframes fade { from { opacity: .25; } }
+
+.app { display: grid; grid-template-columns: 76px minmax(0, 1fr); height: 100vh; background: var(--deck); overflow: hidden; }
+
+/* rail */
+.rail { background: var(--rail) var(--grip-tex); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; padding: 14px 8px 12px; gap: 4px; z-index: 6; }
+.mark { font: 900 23px/1 var(--display); letter-spacing: .02em; margin: 2px 0 20px; user-select: none; }
+.navb { position: relative; width: 60px; border: 0; background: none; border-radius: 9px; padding: 9px 2px 7px; display: grid; justify-items: center; gap: 4px; color: var(--dust); font-size: 11.5px; font-weight: 600; transition: background-color .16s, color .16s; }
+.navb svg { width: 21px; height: 21px; }
+.navb:hover { color: var(--chalk); background: var(--deck-2); }
+.navb[aria-current="page"] { color: var(--chalk); background: var(--deck-2); }
+.navb[aria-current="page"] svg { color: var(--coping); }
+/* attention is a number or a word, never a blinking dot */
+.navb .badge { position: absolute; top: 4px; left: calc(50% + 5px); min-width: 17px; padding: 1px 5px; border-radius: 9px; font: 700 10px/1.4 var(--body); background: var(--warn); color: var(--coping-ink); }
+.rail .spacer { flex: 1; }
+.discord { width: 60px; margin-top: 6px; border: 0; border-radius: 9px; padding: 9px 2px 7px; display: grid; justify-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; background: #5865f2; color: #fff; transition: background-color .16s; }
+.discord svg { width: 21px; height: 21px; }
+.discord:hover { background: #4752c4; }
+
+/* main + the window's own title strip: there is no Windows frame (main.rs window_op). Drag it or the S3R mark. */
+.main { position: relative; min-width: 0; overflow: hidden; }
+.titlebar { position: absolute; z-index: 5; inset: 0 0 auto 0; height: 40px; display: flex; justify-content: flex-end; user-select: none; }
+.wbtns { display: flex; }
+.wbtns button { width: 46px; height: 40px; border: 0; background: none; color: var(--dust); display: grid; place-items: center; cursor: default; transition: background-color .15s, color .15s; }
+.wbtns button:hover { background: rgba(255, 255, 255, .06); color: var(--chalk); }
+.wbtns button.close:hover { background: #c42b1c; color: #fff; }
+.wbtns svg { width: 10px; height: 10px; }
+.app.maxed .wbtns .max, .app:not(.maxed) .wbtns .restore { display: none; }
+.edge { position: fixed; z-index: 50; }
+.edge.n, .edge.s { left: 6px; right: 6px; height: 5px; } .edge.n { top: 0; cursor: ns-resize; } .edge.s { bottom: 0; cursor: ns-resize; }
+.edge.e, .edge.w { top: 6px; bottom: 6px; width: 5px; } .edge.e { right: 0; cursor: ew-resize; } .edge.w { left: 0; cursor: ew-resize; }
+.edge.ne, .edge.nw, .edge.se, .edge.sw { width: 8px; height: 8px; }
+.edge.ne { top: 0; right: 0; cursor: nesw-resize; } .edge.sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.edge.nw { top: 0; left: 0; cursor: nwse-resize; } .edge.se { bottom: 0; right: 0; cursor: nwse-resize; }
+.app.maxed ~ .edge { display: none; }
+
+.view { position: absolute; inset: 40px 0 0 0; overflow-y: auto; }
+
+/* ---------- PLAY: the whole pane is the deck ---------- */
+.play { inset: 0; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 364px); grid-template-rows: minmax(0, 1fr) auto;
+  column-gap: 32px; padding: 60px 40px 74px 48px; background: radial-gradient(900px 520px at 18% -10%, rgba(255, 255, 255, .045), transparent 70%), var(--grip-tex), var(--grip); }
+.lane { position: absolute; left: 0; bottom: 0; width: 100%; height: 170px; z-index: 0; pointer-events: none; }
+/* the player's skater: a 480x360 clip whose ground row (86% down) sits on the coping's top edge, 36px up; heroPlace() sets its x */
+.hero-clip { position: absolute; z-index: 1; left: 0; bottom: calc(36px - 220px * .14); height: 220px; aspect-ratio: 4 / 3; pointer-events: none; }
+.app[data-state="building"] .hero-clip { display: none; }
+.legal { position: absolute; z-index: 2; left: 48px; right: 40px; bottom: 9px; font-size: 11.5px; color: var(--dust-2); text-align: right; }
+
+/* the one thing to do, bottom left, over the coping */
+.act { grid-column: 1; grid-row: 2; position: relative; z-index: 3; max-width: 520px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; justify-items: start; min-width: 0; }
+.brand { display: grid; gap: 6px; justify-items: start; margin-bottom: 8px; user-select: none; }
+.brand strong { font: 900 84px/.84 var(--display); text-transform: uppercase; }
+.brand em { font: 800 21px/1 var(--display); font-style: normal; letter-spacing: .14em; text-transform: uppercase; color: var(--coping); }
+.status { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; min-height: 22px; }
+.mk { display: inline-grid; place-items: center; width: 16px; height: 16px; flex: none; }
+.mk svg { width: 16px; height: 16px; }
+.mk.ok { color: var(--ok); } .mk.warn { color: var(--warn); } .mk.bad { color: var(--bad); } .mk.new, .mk.run { color: var(--coping); }
+.sub { color: var(--dust); font-size: 14px; font-variant-numeric: tabular-nums; min-height: 21px; }
+.row-go { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.cluster { position: relative; display: flex; gap: 2px; }
+.go { position: relative; height: 60px; min-width: 236px; padding: 0 28px; border: 0; border-radius: 8px 0 0 8px; background: var(--coping); color: var(--coping-ink);
+  font: 700 20px/1 var(--body); letter-spacing: .06em; text-transform: uppercase; display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 -3px 0 var(--coping-dark); transition: background-color .15s, transform .12s var(--out), box-shadow .15s; }
+.go:hover { background: var(--coping-hi); }
+.go:active { transform: translateY(1px); box-shadow: inset 0 -1px 0 var(--coping-dark); }
+.go svg { width: 20px; height: 20px; flex: none; }
+.go .lbl { display: inline-flex; align-items: center; gap: 12px; }
+.gear { width: 60px; height: 60px; border: 0; border-radius: 0 8px 8px 0; background: var(--coping); color: var(--coping-ink); display: grid; place-items: center; box-shadow: inset 0 -3px 0 var(--coping-dark); transition: background-color .15s; }
+.gear:hover, .gear[aria-expanded="true"] { background: var(--coping-hi); }
+.gear svg { width: 22px; height: 22px; transition: rotate .3s var(--out); }
+.gear[aria-expanded="true"] svg { rotate: 60deg; }
+/* nothing to press: checking, starting, running, or an update that can't install yet */
+.go[aria-disabled="true"], .app[data-mode="running"] .gear, .app[data-mode="launching"] .gear, .app[data-mode="loading"] .gear {
+  background: var(--deck-3); color: var(--chalk); box-shadow: inset 0 -3px 0 #1d1f23; }
+.go[aria-disabled="true"] { cursor: default; transform: none; }
+
+/* gear menu: secondary actions in one place, opened from the gear, never a separate page */
+.menu { position: absolute; left: 0; bottom: calc(100% + 10px); width: 318px; z-index: 8; background: var(--deck-2); border: 1px solid var(--line-2); border-radius: 10px; padding: 6px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .5); transform-origin: 20% 100%; animation: pop .16s var(--out); }
+@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.97); } }
+.mi { width: 100%; border: 0; background: none; border-radius: 7px; padding: 9px 10px; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 1px 12px; text-align: left; align-items: center; transition: background-color .12s; }
+.mi:hover:not(:disabled), .mi:focus-visible { background: var(--deck-3); }
+.mi:disabled { opacity: .45; }
+.mi svg { width: 18px; height: 18px; color: var(--dust); grid-row: span 2; align-self: center; }
+.mi b { font-weight: 600; font-size: 14px; }
+.mi span { font-size: 12.5px; color: var(--dust); }
+.mi.danger b, .mi.danger svg { color: var(--bad); }
+.mi.armed { background: var(--bad); }
+.mi.armed b, .mi.armed span, .mi.armed svg { color: #1a0a0a; }
+.menu hr { border: 0; border-top: 1px solid var(--line-2); margin: 6px 4px; }
+
+/* progress: same 60px as the button it replaces, so nothing above it moves when a build starts */
+.prog { width: 100%; height: 60px; display: grid; grid-template-columns: minmax(0, 1fr); align-content: space-between; }
+.prog-top { display: flex; align-items: center; gap: 12px; min-width: 0; height: 28px; }
+.prog-top b { font: 600 24px/1 var(--body); font-variant-numeric: tabular-nums; min-width: 2.4em; }
+.prog-top .ghost { margin-left: auto; flex: none; }
+.prog-top span { font-weight: 600; font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar { height: 6px; border-radius: 3px; background: var(--deck-3); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--coping); border-radius: 3px; transform: scaleX(0); transform-origin: left; transition: transform .4s linear; }
+.prog-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--dust); font-size: 13.5px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.prog-meta span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prog-meta span:last-child { flex: none; }
+
+.ghost { background: rgba(255, 255, 255, .02); border: 1px solid var(--line-2); border-radius: 8px; padding: 9px 16px; color: var(--chalk); font-weight: 600; font-size: 14px; transition: border-color .15s, background-color .15s; }
+.ghost:hover:not(:disabled) { border-color: var(--dust-2); background: var(--deck-3); }
+.ghost:disabled { opacity: .45; }
+/* the second click of a two-step confirm */
+.ghost.armed, .ghost.armed:hover { background: var(--bad); border-color: var(--bad); color: #1a0a0a; }
+.ghost.sm { padding: 6px 12px; font-size: 13px; }
+.ghost.danger { color: var(--bad); }
+.link { background: none; border: 0; padding: 0; color: var(--dust); font-size: 13.5px; text-decoration: underline; text-underline-offset: 3px; justify-self: start; }
+.link:hover { color: var(--chalk); }
+.btnrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* the context panel, top right: news when all is well, the build plan while building, what is missing, what went wrong */
+.side { grid-column: 2; grid-row: 1 / 3; align-self: start; position: relative; z-index: 2; max-height: calc(100% - 48px); overflow: auto; background: rgba(27, 29, 33, .94);
+  border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; display: grid; gap: 14px; }
+.side:empty { display: none; }
+.side h2 { font: 600 16px/1.3 var(--body); text-wrap: pretty; }
+.side .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.side ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: 14px; }
+.side ul li::marker { color: var(--coping); }
+.side .ver-notes { display: grid; gap: 6px; }
+.side .ver-notes h3 { font: 600 13px/1.3 var(--body); color: var(--dust); }
+.side h4.sec { margin: 6px 0 0; font: 600 12px/1.3 var(--body); letter-spacing: .06em; color: var(--dust); }
+.fine { color: var(--dust); font-size: 13px; max-width: 72ch; }
+.howto { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 12px !important; counter-reset: s; }
+.howto li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 2px 12px; counter-increment: s; }
+.howto li::before { content: counter(s); grid-row: span 2; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line-2); display: grid; place-items: center; font: 600 12px/1 var(--body); color: var(--dust); }
+.howto li.now::before { background: var(--coping); border-color: var(--coping); color: var(--coping-ink); }
+.howto li.done::before { content: "✓"; color: var(--ok); border-color: var(--ok); }
+.howto b { font-weight: 600; font-size: 14px; }
+.howto span { color: var(--dust); font-size: 13px; }
+.steps { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 0 !important; }
+.steps li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--dust); }
+.steps li:first-child { border-top: 0; }
+.steps .ic { width: 18px; height: 18px; display: grid; place-items: center; }
+.steps .ic svg { width: 16px; height: 16px; }
+.steps li.done { color: var(--chalk); } .steps li.done .ic { color: var(--ok); }
+.steps li.now { color: var(--chalk); font-weight: 600; } .steps li.now .ic, .steps li.now .pc { color: var(--coping); }
+.steps li.fail { color: var(--chalk); font-weight: 600; } .steps li.fail .ic { color: var(--bad); }
+.steps .pc { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.steps .mini { grid-column: 2 / -1; height: 3px; border-radius: 2px; background: var(--deck-3); overflow: hidden; }
+.steps .mini i { display: block; height: 100%; background: var(--coping); transform-origin: left; transform: scaleX(0); transition: transform .4s linear; }
+.misslist { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: 0 !important; }
+.misslist li { display: grid; gap: 1px; padding: 9px 0; border-top: 1px solid var(--line); }
+.misslist li:first-child { border-top: 0; }
+.misslist b { font-weight: 600; font-size: 14px; }
+.misslist span { font-size: 12.5px; color: var(--dust); }
+.errbox { display: grid; gap: 10px; }
+.errbox p { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.errbox details summary { cursor: pointer; color: var(--dust); font-size: 13.5px; }
+.errbox pre { margin: 8px 0 0; max-height: 160px; overflow: auto; background: var(--grip); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font: 11.5px/1.5 var(--mono); color: var(--dust); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* a warning that sits above whatever the panel shows (bad install location, this PC may not run it, an update that can't install) */
+.alert { display: grid; gap: 6px; padding: 12px 14px; border-radius: 9px; background: rgba(239, 154, 94, .09); border: 1px solid rgba(239, 154, 94, .35); font-size: 13.5px; }
+.alert b { color: var(--warn); font-weight: 600; }
+.alert.bad { background: rgba(238, 102, 102, .08); border-color: rgba(238, 102, 102, .35); }
+.alert.bad b { color: var(--bad); }
+.tip { display: grid; gap: 6px; padding: 12px 14px; border-radius: 9px; background: var(--deck-2); font-size: 13.5px; }
+.tip > span { color: var(--dust); }
+
+/* ---------- inner pages ---------- */
+.inner { padding: 16px 48px 40px; display: grid; gap: 22px; align-content: start; max-width: 1040px; }
+.ph { display: grid; gap: 6px; max-width: 70ch; }
+.ph h1 { font: 600 24px/1.2 var(--body); }
+.ph p { color: var(--dust); font-size: 14.5px; }
+.panel { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: grid; gap: 12px; background: var(--deck); }
+.panel > h2 { font: 600 15px/1.3 var(--body); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 8px; background: var(--deck-3); font: 400 13px/1.2 var(--mono); min-width: 0; overflow-wrap: anywhere; }
+.chip button { border: 0; background: none; width: 22px; height: 22px; flex: none; border-radius: 5px; color: var(--dust); display: grid; place-items: center; }
+.chip button:hover { background: var(--line-2); color: var(--chalk); }
+.chip svg { width: 10px; height: 10px; }
+.empty { border: 1.5px dashed var(--line-2); border-radius: 12px; padding: 26px; display: grid; justify-items: center; gap: 10px; text-align: center; }
+.empty b { font-weight: 600; font-size: 16px; }
+.empty span { color: var(--dust); font-size: 14px; max-width: 54ch; }
+.primary-sm { border: 0; border-radius: 8px; background: var(--coping); color: var(--coping-ink); font-weight: 700; font-size: 14px; padding: 10px 18px; box-shadow: inset 0 -2px 0 var(--coping-dark); transition: background-color .15s; display: inline-flex; gap: 8px; align-items: center; }
+.primary-sm:hover { background: var(--coping-hi); }
+.primary-sm svg { width: 16px; height: 16px; }
+.sum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+.sum b { font: 600 20px/1.2 var(--body); font-variant-numeric: tabular-nums; }
+.sum span { color: var(--dust); font-size: 14px; }
+.sum .push { margin-left: auto; }
+/* one line per game or pack; a complete group folds away, a group with something missing opens at the top */
+.groups { display: flex; flex-direction: column; gap: 8px; }
+.group { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--deck); }
+.group > summary { display: flex; align-items: center; gap: 14px; padding: 12px 16px; background: var(--deck-2); cursor: pointer; list-style: none; }
+.group > summary::-webkit-details-marker { display: none; }
+.group > summary::after { content: ""; flex: none; width: 7px; height: 7px; border: solid var(--dust); border-width: 0 2px 2px 0; rotate: 45deg; translate: 0 -2px; transition: rotate .15s; }
+.group[open] > summary::after { rotate: -135deg; translate: 0 2px; }
+.group summary > div { display: grid; gap: 1px; min-width: 0; }
+.group h3 { font-size: 15px; font-weight: 600; }
+.group .kind { font-size: 13px; color: var(--dust); }
+.group .count { margin-left: auto; font-size: 13px; color: var(--dust); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.group .count.ok { color: var(--ok); } .group .count.bad { color: var(--bad); font-weight: 600; }
+.rows { display: flex; flex-direction: column; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
+.row .nm { display: grid; gap: 2px; min-width: 0; justify-items: start; }
+.row .nm b { font-weight: 500; font-size: 14px; }
+.row code { font: 400 12px/1.3 var(--mono); color: var(--dust); overflow-wrap: anywhere; }
+.row .link { font-size: 12.5px; }
+.tag { font: 600 12px/1 var(--body); padding: 5px 8px; border-radius: 5px; min-width: 84px; text-align: center; color: var(--ok); background: rgba(124, 207, 139, .1); transition: color .25s; }
+.tag.miss { color: var(--bad); background: rgba(238, 102, 102, .12); }
+.tag.wait { color: var(--dust); background: var(--deck-3); }
+.groups.scanning .tag { color: var(--coping); background: rgba(244, 194, 52, .1); }
+.row .hint { grid-column: 1 / -1; font-size: 13px; background: rgba(238, 102, 102, .07); border-radius: 6px; padding: 8px 10px; }
+.where { padding: 10px 16px 12px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dust); }
+.where b { color: var(--chalk); font-weight: 600; }
+
+.sets { display: grid; gap: 14px; }
+.srow { display: flex; align-items: center; gap: 12px 16px; padding: 12px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.panel > h2 + .srow { border-top: 0; padding-top: 4px; }
+.srow .what { flex: 1 1 280px; display: grid; gap: 1px; min-width: 0; }
+.srow .what b, .srow .what label { font-weight: 600; font-size: 14.5px; }
+.srow .what span { color: var(--dust); font-size: 13px; }
+.srow .size { font: 500 13px/1 var(--mono); color: var(--dust); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+.srow code { font: 400 12.5px/1.3 var(--mono); color: var(--dust); overflow-wrap: anywhere; }
+.srow input[type=password] { flex: 1 1 220px; min-width: 0; background: var(--grip); border: 1px solid var(--line-2); border-radius: 8px; padding: 9px 12px; font: 400 13px/1.2 var(--mono); }
+.srow select { background: var(--deck-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; }
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 13px; color: var(--dust); transition: background-color .16s, color .16s; }
+.seg button[aria-checked="true"] { background: var(--deck-3); color: var(--chalk); }
+.switch { appearance: none; width: 40px; height: 22px; border-radius: 11px; background: var(--line-2); position: relative; cursor: pointer; flex: none; margin: 0; transition: background-color .2s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--chalk); transition: transform .25s var(--out), background-color .2s; }
+.switch:checked { background: var(--coping); }
+.switch:checked::after { transform: translateX(18px); background: var(--coping-ink); }
+.panel details summary { cursor: pointer; color: var(--dust); font-size: 13.5px; }
+.panel details p { margin-top: 8px; color: var(--dust); font-size: 13px; max-width: 70ch; }
+
+.faq { display: grid; gap: 8px; max-width: 760px; }
+.faq details { border: 1px solid var(--line); border-radius: 10px; background: var(--deck); }
+.faq summary { cursor: pointer; padding: 13px 16px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; color: var(--dust); font-weight: 500; }
+.faq details[open] summary::after { content: "–"; }
+.faq p { padding: 0 16px 14px; color: var(--dust); font-size: 14px; max-width: 68ch; }
+
+.toast { position: fixed; z-index: 9; right: 24px; bottom: 60px; background: var(--chalk); color: var(--grip); font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 8px; max-width: min(420px, calc(100% - 48px));
+  opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity .2s, transform .3s var(--out); box-shadow: 0 10px 30px rgba(0, 0, 0, .4); }
+.toast.show { opacity: 1; transform: none; }
+
+/* the window's minimum is 760x540 (main.rs) */
+@media (max-width: 1000px) {
+  .play { grid-template-columns: minmax(0, 1fr) 280px; column-gap: 20px; padding: 56px 24px 70px; }
+  .brand strong { font-size: 60px; }
+  .inner { padding-inline: 24px; }
+  .legal { left: 24px; right: 24px; }
+}
+@media (max-height: 640px) {
+  .brand strong { font-size: 60px; }
+  .play { padding-top: 48px; }
+}
+/* Settings > Animations off: nothing moves, the board stays parked too (calm()). The launcher's own switch, like a game
+   setting, rather than Windows' animation effects (the user's choice, 10-12: F9 dropped). */
+.calm *, .calm *::before, .calm *::after { transition: none !important; animation: none !important; }
+</style>
+
+<div class="app" id="app" data-state="missing" data-mode="loading">
+  <aside class="rail">
+    <div class="mark" aria-label="S3R">S3R</div>
+    <nav aria-label="Launcher" style="display:contents">
+      <button type="button" class="navb" data-view="play" aria-current="page"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>Play</button>
+      <button type="button" class="navb" data-view="files"><span class="badge" id="files-dot" hidden></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5h6l2 2.5h10v10H3z"/></svg>Files</button>
+      <button type="button" class="navb" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>Settings</button>
+      <div class="spacer"></div>
+      <button type="button" class="navb" data-view="help"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.4M12 16.8v.2"/></svg>Help</button>
+    </nav>
+    <button type="button" class="discord" data-act="discord" title="Join the Discord"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg>Discord</button>
+  </aside>
+
+  <div class="main">
+    <div class="titlebar">
+      <div class="wbtns">
+        <button type="button" data-op="minimize" aria-label="Minimize"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor"/></svg></button>
+        <button type="button" data-op="maximize" class="max" aria-label="Maximize"><svg viewBox="0 0 10 10" aria-hidden="true"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor"/></svg></button>
+        <button type="button" data-op="maximize" class="restore" aria-label="Restore"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5V.5h7v7h-2M.5 2.5h7v7h-7z" fill="none" stroke="currentColor"/></svg></button>
+        <button type="button" data-op="close" class="close" aria-label="Close"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"/></svg></button>
+      </div>
+    </div>
+
+    <!-- PLAY -->
+    <section class="view play" id="view-play" aria-label="Play">
+      <canvas class="lane" id="lane" aria-hidden="true"></canvas>
+      <video class="hero-clip" id="hero-clip" muted loop playsinline preload="auto" aria-hidden="true" hidden></video>
+      <aside class="side" id="side" aria-live="polite"></aside>
+      <div class="act">
+        <div class="brand"><strong>S3R</strong></div>
+        <p class="status" aria-live="polite"><span class="mk" id="status-mk"></span><span id="status-t"></span></p>
+        <div class="row-go" id="row-go">
+          <div class="cluster">
+            <button type="button" class="go" id="go" data-act="go"><span class="lbl" id="go-l"></span></button>
+            <button type="button" class="gear" id="gear" data-act="gear" aria-label="More options" aria-haspopup="menu" aria-expanded="false" aria-controls="menu">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <div class="menu" id="menu" role="menu" aria-label="More options" hidden></div>
+          </div>
+          <button type="button" class="ghost" id="play-old" data-act="play-old" hidden></button>
+        </div>
+        <div class="prog" id="prog" hidden>
+          <div class="prog-top"><b id="pg-pct">0%</b><span id="pg-what"></span><button type="button" class="ghost sm" id="stop" data-act="stop" data-confirm="Stop? Finished steps are kept">Stop</button></div>
+          <div class="bar" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="100" id="pg-bar"><i id="pg-fill"></i></div>
+          <div class="prog-meta"><span id="pg-step"></span><span id="pg-left"></span></div>
+        </div>
+        <p class="sub" id="sub"></p>
+        <p class="sub" id="playtime" hidden></p>
+      </div>
+      <p class="legal">Unofficial fan project, not made or endorsed by Electronic Arts. You need your own copies of the games.</p>
+    </section>
+
+    <!-- FILES -->
+    <section class="view" id="view-files" aria-label="Game files" hidden>
+      <div class="inner">
+        <header class="ph"><h1 tabindex="-1">Game files</h1><p>S3R ships with no game content. It builds everything from your own copies of these games, so every item below is required. Point it at the folders that hold them; subfolders are searched too, and each item is recognised by what is in it.</p></header>
+        <div id="pick"></div>
+        <div class="sum" id="sum"></div>
+        <div class="groups" id="groups"></div>
+        <p class="fine">The launcher only reads these files on your PC. It never uploads, shares or changes them.</p>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="view-settings" aria-label="Settings" hidden>
+      <div class="inner">
+        <header class="ph"><h1 tabindex="-1">Settings</h1><p>Saved for this PC.</p></header>
+        <div class="sets">
+          <div class="panel">
+            <h2>Playing</h2>
+            <div class="srow"><div class="what"><b id="l-start">When the game starts</b><span>What the launcher does while you play.</span></div>
+              <div class="seg" role="radiogroup" aria-labelledby="l-start" id="seg-start">
+                <button type="button" role="radio" data-act="set" data-key="on_game_start" data-value="open">Stay open</button>
+                <button type="button" role="radio" data-act="set" data-key="on_game_start" data-value="minimize">Minimize</button>
+                <button type="button" role="radio" data-act="set" data-key="on_game_start" data-value="close">Close</button>
+              </div></div>
+            <div class="srow"><div class="what"><label for="s-tray">Minimize to the tray</label><span>Minimized, the launcher waits in the system tray by the clock instead of on the taskbar. Click its icon to open it again, right-click it to quit.</span></div><input class="switch" type="checkbox" role="switch" id="s-tray" data-key="minimize_to_tray"></div>
+            <div class="srow"><div class="what"><label for="s-auto">Install updates automatically</label><span>A new version installs when the launcher opens, then rebuilds what it changed.</span></div><input class="switch" type="checkbox" role="switch" id="s-auto"></div>
+            <div class="srow"><div class="what"><b>Your saves</b><span>Your skater, settings and progress. Back them up before moving to a new PC.</span></div>
+              <div class="btnrow"><button type="button" class="ghost" data-act="backup">Back up</button><button type="button" class="ghost" data-act="restore" data-confirm="Replace your saves?">Restore</button></div></div>
+            <div class="srow"><div class="what"><b>Game won't start?</b><span>Safe mode starts the game with default graphics. Reset graphics settings does the same without starting it. Your skater, progress and other settings stay.</span></div>
+              <div class="btnrow"><button type="button" class="ghost" data-act="safe">Start in safe mode</button><button type="button" class="ghost" data-act="reset-settings" data-confirm="Reset graphics settings?">Reset graphics settings</button></div></div>
+          </div>
+          <div class="panel">
+            <h2>Building</h2>
+            <div class="srow"><div class="what"><label for="s-awake">Keep the PC awake while building</label><span>Sleep would stop the build. Your screen can still turn off.</span></div><input class="switch" type="checkbox" role="switch" id="s-awake" data-key="keep_awake"></div>
+            <div class="srow"><div class="what"><label for="s-low">Build in the background</label><span>Gives the build lower priority: your PC stays responsive, but the build is slower while you use it.</span></div><input class="switch" type="checkbox" role="switch" id="s-low" data-key="low_priority"></div>
+            <div class="srow"><div class="what"><label for="s-few">Use fewer resources</label><span>Builds with 2 workers and less memory. For PCs with 8 GB of memory or less; the build takes longer.</span></div><input class="switch" type="checkbox" role="switch" id="s-few" data-key="fewer_resources"></div>
+          </div>
+          <div class="panel" id="storage">
+            <h2>Storage</h2>
+            <div class="srow"><div class="what"><b>Game folder</b><code id="game-dir"></code><span id="disk-t"></span></div>
+              <div class="btnrow"><button type="button" class="ghost" data-act="open-game">Open</button><button type="button" class="ghost" data-act="move-game">Move</button></div></div>
+            <div id="piles"></div>
+            <div class="srow"><div class="what"><b>Check and repair</b><span>Checks every game file and rebuilds only what is wrong. Your game files are needed only if something is.</span></div><button type="button" class="ghost" data-act="verify">Check and repair</button></div>
+            <div class="srow"><div class="what"><b>Rebuild everything</b><span id="rebuild-t">Starts over from your game files.</span></div><button type="button" class="ghost" data-act="rebuild" data-confirm="Rebuild everything?">Rebuild</button></div>
+            <div class="srow"><div class="what"><b>Uninstall game</b><span>Deletes the built game, its leftovers and its audio and texture caches, and keeps the launcher so you can build it again. Your saves (the game folder's data\settings) and your own music and mods are kept. Your game files are not touched.</span></div><button type="button" class="ghost danger" data-act="uninstall" data-confirm="Delete the built game? Saves are kept">Uninstall</button></div>
+            <div class="srow"><div class="what"><b>Uninstall everything</b><span>Uninstalls the game, then removes this launcher, its settings, logs and desktop shortcut, and closes. Your saves (the game folder's data\settings), imported characters and your own music and mods are kept. Your game files are not touched.</span></div><button type="button" class="ghost danger" data-act="uninstall-all" data-confirm="Delete the game and the launcher? Saves are kept">Uninstall all</button></div>
+          </div>
+          <div class="panel">
+            <h2>Launcher</h2>
+            <div class="srow"><div class="what"><label for="s-anim">Animations</label><span>The board on the Play screen, page transitions and progress effects.</span></div><input class="switch" type="checkbox" role="switch" id="s-anim" checked></div>
+            <div class="srow" id="lang-row" hidden><div class="what"><label for="s-lang">Language</label></div><select id="s-lang"></select></div>
+            <div class="srow" id="shortcut-row" hidden><div class="what"><b>Desktop shortcut</b><span>So you can find the launcher again.</span></div><button type="button" class="ghost" data-act="shortcut">Add shortcut</button></div>
+            <div class="srow"><div class="what"><b>About</b><span>Launcher <span id="ver">dev</span> · Game version <span id="about-v">not installed</span></span></div>
+              <div class="btnrow"><button type="button" class="ghost" data-act="copy-times">Copy build report</button><button type="button" class="ghost" data-act="bundle">Save support file</button></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HELP -->
+    <section class="view" id="view-help" aria-label="Help" hidden>
+      <div class="inner">
+        <header class="ph"><h1 tabindex="-1">Help</h1><p>The questions people ask most.</p></header>
+        <div class="faq">
+          <details open><summary>What do I need?</summary><p>Your own copies of Skate 3 with Title Update 3 and its 9 add-on packs, Skate 2 with its 3 add-on packs, Skate 1, and two PS3 mods: New San Van and Skate1Map. 18 items in all. The Game files page lists each one, and each has a "How do I get this?" guide.</p></details>
+          <details><summary>Where are the add-on packs and the title update?</summary><p>On the Xbox 360 they were downloaded to, in the hard drive's Content folder: under 454108E6 for Skate 3 and 4541087F for Skate 2. Copy those folders to your PC and add them on the Game files page.</p></details>
+          <details><summary>How long does the build take?</summary><p>Usually 30 to 60 minutes, and only once. The launcher shows its estimate for your PC before you start, and you can keep using your PC. Most updates rebuild a few steps; the launcher says how long before you install one.</p></details>
+          <details><summary>How much space do I need?</summary><p>The launcher shows the space the build needs next to the free space on that drive before it starts, and stops early if there is not enough. Settings, Storage shows what the game uses and lets you clear leftovers.</p></details>
+          <details><summary>My build stopped. What now?</summary><p>Press Try again or Resume build. Finished steps are kept. If it stops at the same step again, press Save support file in Settings and attach it to a GitHub issue.</p></details>
+          <details><summary>The game won't start.</summary><p>Try Settings, Playing, Start in safe mode. If that works, a graphics setting was the problem, and your graphics are now back to default. If not, use Check and repair from the gear next to Play.</p></details>
+          <details><summary>Is this made by EA?</summary><p>No. S3R is an unofficial fan project. It is not made, endorsed or supported by Electronic Arts, and you need your own copies of the games.</p></details>
+        </div>
+        <div class="btnrow"><button type="button" class="ghost" data-act="guide">Game files guide</button><button type="button" class="ghost" data-act="issue">Report a problem</button><button type="button" class="ghost" data-act="releases">All releases</button><button type="button" class="ghost" data-act="discord">Join the Discord</button></div>
+      </div>
+    </section>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const root = document.documentElement, app = $('app');
+  const css = n => getComputedStyle(root).getPropertyValue(n).trim();
+  let still = false;   // the saved choice arrives in Rust's `settings` message (launcher.json)
+  const bump = (el, cls) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // ---------- F12: English is the source text. A language is one table from English to its text, where {} stands for a
+  // number or a name, e.g. LANGS.es = { 'Play': 'Jugar', '{} of {} files missing': 'Faltan {} de {} archivos' }.
+  // ponytail: no languages yet (the user picks which); the Language row appears once a second one is added here.
+  const LANGS = { en: null };
+  let dict = null, pats = [];
+  const tx = s => {
+    if (!dict || !s) return s;
+    if (dict[s]) return dict[s];
+    for (const [re, out] of pats) { const m = s.match(re); if (m) { let i = 1; return out.replace(/\{\}/g, () => m[i++]); } }
+    return s;
+  };
+  function localize(el) {
+    if (!dict) return;
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n; (n = w.nextNode());) { const t = n.nodeValue.trim(); if (t && tx(t) !== t) n.nodeValue = n.nodeValue.replace(t, tx(t)); }
+    el.querySelectorAll('[aria-label],[placeholder]').forEach(e => ['aria-label', 'placeholder'].forEach(a => e.hasAttribute(a) && e.setAttribute(a, tx(e.getAttribute(a)))));
+  }
+  function setLang(code) {
+    dict = LANGS[code] || null;
+    pats = dict ? Object.keys(dict).filter(k => k.includes('{}')).map(k =>
+      [new RegExp('^' + k.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\}/g, '(.+?)') + '$'), dict[k]]) : [];
+    localize(document.body);
+  }
+
+  // Grip tape: speckle tile drawn once, used as a background everywhere the deck shows.
+  try {
+    const c = document.createElement('canvas'); c.width = c.height = 160;
+    const g = c.getContext('2d');
+    for (let i = 0; i < 5200; i++) {
+      g.fillStyle = Math.random() < .5 ? `rgba(236,235,229,${Math.random() * .07})` : `rgba(0,0,0,${Math.random() * .35})`;
+      g.fillRect(Math.random() * 160, Math.random() * 160, Math.random() < .2 ? 2 : 1, 1);
+    }
+    root.style.setProperty('--grip-tex', `url(${c.toDataURL()})`);
+  } catch (e) {}
+
+  // The 18 required items, copied from ITEMS in tools/pipeline/sources.py (a test in main.rs fails if the lists differ).
+  const groups = [
+    { n: '01', name: 'Skate 3', kind: 'Xbox 360 disc image', where: 'An .iso of your own Skate 3 disc, the USA/Europe release. The launcher checks that it is exactly that release.', items: [
+      { id: 's3-disc', label: 'Skate 3 (USA, Europe)' }] },
+    { n: '02', name: 'Skate 3 Title Update 3', kind: 'Xbox 360 title update', where: "From an Xbox 360 that has the update installed: it is in the hard drive's Content folder, under 454108E6.", items: [
+      { id: 's3-tu3', label: 'Skate 3 Title Update 3' }] },
+    { n: '03', name: 'Skate 3 DLC', kind: '9 Xbox 360 add-on packs', where: "From the Xbox 360 the packs were downloaded to: they are in the hard drive's Content folder, under 454108E6. All nine are needed.", items: [
+      { id: 's3-dlc-sanvan', label: 'San Van Party Pack' },
+      { id: 's3-dlc-hawaii', label: "Danny Way's Hawaiian Dream" },
+      { id: 's3-dlc-maloof', label: 'Maloof Money Cup 2010 NYC' },
+      { id: 's3-dlc-afterdark', label: 'After Dark' },
+      { id: 's3-dlc-create', label: 'Skate.Create Upgrade Pack' },
+      { id: 's3-dlc-blackbox', label: 'Black Box Distribution Skate Park' },
+      { id: 's3-dlc-filmer', label: 'Filmer Pack' },
+      { id: 's3-dlc-share', label: 'Skate Share Pack' },
+      { id: 's3-dlc-money', label: 'Time is Money' }] },
+    { n: '04', name: 'Skate 2', kind: 'Xbox 360 disc image', where: 'An .iso of your own Skate 2 disc, the European release.', items: [
+      { id: 's2-disc', label: 'Skate 2 (Europe)' }] },
+    { n: '05', name: 'Skate 2 DLC', kind: '3 Xbox 360 add-on packs', where: "From the Xbox 360 the packs were downloaded to: they are in the hard drive's Content folder, under 4541087F. All three are needed.", items: [
+      { id: 's2-dlc-maloof', label: 'Maloof Money Cup Pack' },
+      { id: 's2-dlc-filmer', label: 'Skate 2 Filmer Pack' },
+      { id: 's2-dlc-throwback', label: 'Throwback Pack' }] },
+    { n: '06', name: 'Skate 1', kind: 'Xbox 360 disc image', where: 'An .iso of your own skate. disc, the European release.', items: [
+      { id: 's1-disc', label: 'Skate. (Europe)' }] },
+    { n: '07', name: 'New San Van mod', kind: 'PS3 mod, RPCS3 version', where: "The mod's folder as it came, for the US PS3 release of Skate 3 (BLUS30464). Keep the files inside it where they are.", items: [
+      { id: 'mod-newsanvan', label: 'RPCS3 New San Van mod' }] },
+    { n: '08', name: 'Skate1Map mod', kind: 'PS3 mod, RPCS3 version', where: "The mod's folder as it came. Keep the files inside it where they are.", items: [
+      { id: 'mod-skate1map', label: 'Skate1Map mod' }] },
+  ];
+  const all = groups.flatMap(g => g.items.map(it => Object.assign(it, { group: g.name })));
+
+  const steps = [
+    ['Check game files', 'Confirms every disc, update and pack is the right one.'],
+    ['Unpack Skate 3', 'Reads the disc and applies Title Update 3.'],
+    ['Add Skate 3 DLC', 'All nine packs, including the extra maps.'],
+    ['Port Skate 2 maps', 'New San Van and the Skate 2 maps (RPCS3 mod).'],
+    ['Port Skate 1 content', 'The Skate 1 map, clothing, skies and challenges.'],
+    ['Build wardrobe', 'Clothing, graphics and logos from all three games.'],
+    ['Build world', 'Lighting, weather and colour grading.'],
+    ['Finish up', 'Writes receipts so updates can verify the game.'],
+  ];
+  // shown until the update check brings the latest release's own notes (offline, or before the game is installed): this
+  // version's ui/changelog.md, which main.rs puts in the page, read the way update.rs notes_from reads release text
+  const NOTES = ((document.getElementById('changelog') || {}).textContent || '').split('\n').map(l => l.trim()).filter(Boolean)
+    .map(l => l.startsWith('#') ? '# ' + l.replace(/^#+\s*/, '') : l.replace(/^[-*•]\s*/, ''));
+  // a release's notes: '# X' starts a section, every other line is a bullet under it
+  function noteList(notes) {
+    let h = '', open = false;
+    for (const t of notes || []) {
+      if (t.startsWith('# ')) { h += `${open ? '</ul>' : ''}<h4 class="sec">${esc(t.slice(2))}</h4><ul>`; open = true; }
+      else { if (!open) { h += '<ul>'; open = true; } h += `<li>${esc(t)}</li>`; }
+    }
+    return open ? h + '</ul>' : h;
+  }
+  const REPO = 'https://github.com/daytryan/S3R';
+  const RELEASES = REPO + '/releases', ISSUES = REPO + '/issues', GUIDE = REPO + '/blob/main/docs/source-files-guide.md';
+  const DISCORD = 'https://discord.gg/PC2W9K4xan';
+
+  // What Rust has told us. state: missing | ready | building | update | play. loading: no answer from the first check yet.
+  let state = 'missing', first = false, loading = true, progress = 0, step = 0, doing = '';
+  // From the build's progress events: each plan step's fill (0..1), seconds left, and whether the bar comes from them.
+  let stepFill = null, eta = null, fine = false;
+  // The live countdown: eta arrived at etaAt; shownEta counts down each second and eases towards each new estimate.
+  let etaAt = 0, shownEta = null, buildStart = 0;
+  let items = {}, folders = [], gameDir = '', upd = null, checkedAt = 0;
+  let scanning = false, updating = false, checking = false, updAvail = false;
+  let failedAt = null, err = null;            // the plan step a build stopped at; the error the panel shows
+  let gameOn = false, gameExt = false, launching = false, launchT;   // F1
+  let est = null, dl = null, loc = null, pc = null, sizes = null, longOff = false, stopping = false;
+  const LONG_PATHS = String.raw`reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f`;
+  let cfg = { on_game_start: 'minimize', keep_awake: true, low_priority: true, fewer_resources: false, minimize_to_tray: false, shortcut: true, language: 'en', installed: null };
+  const busy = () => state === 'building' || updating;
+  const send = m => { try { window.ipc.postMessage(JSON.stringify(m)); } catch (e) {} };
+
+  // ---------- formatting ----------
+  const two = n => String(n).padStart(2, '0');
+  function clock(s) { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return h ? `${h}:${two(m)}:${two(s % 60)}` : `${m}:${two(s % 60)}`; }
+  function dur(s) { const m = Math.max(1, Math.round(s / 60)); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60 ? (m % 60) + ' min' : ''}`.trim() : `${m} min`; }
+  function bytes(n) { if (!(n >= 0)) return ''; const g = n / 1073741824; return g >= 1 ? `${g >= 100 ? Math.round(g) : g.toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1048576))} MB`; }
+  function range(e) { if (!e || !(e.max > 0)) return ''; const a = Math.round(e.min / 300) * 5, b = Math.round(e.max / 300) * 5; return a && b > a ? `${a}–${b} min` : `About ${dur(e.max)}`; }
+  const short = e => e && e.need > 0 && e.free >= 0 && e.need > e.free;
+  function estText(e) {
+    if (!e) return '';
+    const t = range(e), d = e.need > 0 ? `needs ${bytes(e.need)}${e.free >= 0 ? `, ${bytes(e.free)} free on ${e.drive || 'the game drive'}` : ''}` : '';
+    return [t, d].filter(Boolean).join(' · ');
+  }
+
+  // ---------- icons ----------
+  const I = {
+    play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>',
+    folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5h6l2 2.5h10v10H3z"/></svg>',
+    build: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5l4 4M4 20l8.5-8.5M13 4.5l6.5 6.5-2 2L11 6.5z"/></svg>',
+    down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M6 10l6 6 6-6M4 21h16"/></svg>',
+    resume: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>',
+    ok: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>',
+    bad: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+    warn: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5l7 12.5H1z" fill="currentColor"/><path d="M8 6v3.5M8 11.6v.1" stroke="#1b1505" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    new: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="currentColor"/><path d="M8 4.8v4.4M5.8 7.2L8 9.4l2.2-2.2" stroke="#1b1505" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    run: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6" opacity=".35"/><path d="M8 2a6 6 0 0 1 6 6"/></svg>',
+    dot: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="8" r="5" opacity=".5"/></svg>',
+    x: '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.6"/></svg>',
+    upd: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5" stroke-linecap="round"/></svg>',
+    open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5h6l2 2.5h10v10H3z"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
+    pack: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5L12 3l8 4.5v9L12 21l-8-4.5z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg>',
+    redo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.7L20 8.5M20 4v4.5h-4.5M20 12a8 8 0 0 1-13.7 5.7L4 15.5M4 20v-4.5h4.5"/></svg>',
+  };
+
+  // ---------- the Play screen's mode: what Rust's state means for the player right now ----------
+  function mode() {
+    if (loading) return 'loading';
+    if (updating) return 'updating';
+    if (state === 'building') return 'building';   // a build stays visible (and stoppable) even with the game open
+    if (gameOn) return 'running';
+    if (launching) return 'launching';
+    if (state === 'update') return first ? 'install' : 'update';
+    if (state === 'missing') return folders.length ? 'missing' : 'choose';
+    if (state === 'ready') return failedAt != null ? 'stopped' : 'ready';
+    return 'play';
+  }
+  // Why something that changes the game can't run now (F1), or '' when it can.
+  const holdUp = () => gameOn ? 'Close the game first.' : busy() ? (updating ? 'Wait for the update to finish.' : 'Wait for the build to finish.') : '';
+  const missingNow = () => all.filter(it => !items[it.id] || items[it.id].status !== 'ok');
+  const known = () => Object.keys(items).length > 0;
+  const per = 100 / steps.length;
+  const currentStep = () => { const open = stepFill ? stepFill.findIndex(f => f < 1) : -1; return Math.min(steps.length - 1, open >= 0 ? open : step); };
+  const fillOf = i => state !== 'building' ? (failedAt != null && i < failedAt ? 1 : 0)
+    : stepFill ? stepFill[i] : i < step ? 1 : i === step ? Math.max(.08, Math.min(.92, (progress - i * per) / per)) : 0;
+
+  function setText(el, text) { text = tx(text); if (el.textContent !== text) { const fresh = !el.textContent; el.textContent = text; if (!fresh) bump(el, 'swap'); } }
+  function setGo(html, key, off) {
+    const L = $('go-l'), G = $('go');
+    if (L.dataset.k !== key) { L.dataset.k = key; L.innerHTML = html; localize(L); bump(L, 'swap'); }
+    off ? G.setAttribute('aria-disabled', 'true') : G.removeAttribute('aria-disabled');
+  }
+  function setStatus(kind, text) { const mk = $('status-mk'); if (mk.dataset.k !== kind) { mk.dataset.k = kind; mk.className = 'mk ' + kind; mk.innerHTML = I[kind] || ''; } setText($('status-t'), text); }
+  function setSide(key, html) { const s = $('side'); if (s.dataset.k === key) return false; s.dataset.k = key; s.innerHTML = html; localize(s); if (html) bump(s, 'swap'); return true; }
+
+  // ---------- the side panel ----------
+  function stepsHtml(m) {
+    return `<ol class="steps">${steps.map(([t, d], i) => {
+      const f = fillOf(i), fail = m === 'stopped' && i === failedAt;
+      const cls = fail ? 'fail' : f >= 1 ? 'done' : m === 'building' && f > 0 ? 'now' : '';
+      return `<li class="${cls}" data-i="${i}" title="${esc(d)}"><span class="ic">${fail ? I.bad : f >= 1 ? I.ok : cls === 'now' ? I.run : I.dot}</span><span>${esc(t)}</span><span class="pc"></span>${m === 'building' ? '<span class="mini"><i></i></span>' : ''}</li>`;
+    }).join('')}</ol>`;
+  }
+  function liveSteps() {
+    document.querySelectorAll('#side .steps li').forEach(li => {
+      const i = +li.dataset.i, f = fillOf(i), now = f > 0 && f < 1;
+      const cls = f >= 1 ? 'done' : now ? 'now' : '';
+      if (li.className !== cls) { li.className = cls; li.querySelector('.ic').innerHTML = f >= 1 ? I.ok : now ? I.run : I.dot; }
+      li.querySelector('.pc').textContent = now ? `${Math.round(f * 100)}%` : '';
+      const mini = li.querySelector('.mini');
+      if (mini) { mini.hidden = !now; mini.firstChild.style.transform = `scaleX(${f})`; }
+    });
+  }
+  const LOC = {
+    onedrive: 'The launcher is in a OneDrive folder. The game would upload about 50 GB, and syncing can break it while it builds.',
+    program_files: 'The launcher is in Program Files, where it can only write with admin rights.',
+    temp: 'The launcher is running from inside a zip or a temporary folder that Windows empties. Extract the zip first, then open the launcher from there.',
+    readonly: "The launcher's folder can't be written to.",
+    long: "The launcher's folder path is long. Some game files could pass Windows' 260-character limit.",
+  };
+  function alerts(m) {
+    let h = '';
+    if (loc && loc.problem && !['building', 'updating', 'running'].includes(m)) {
+      h += `<div class="alert"><b>This folder will cause problems</b><span>${esc(LOC[loc.problem] || loc.problem)}${loc.suggest ? ` A folder like ${esc(loc.suggest)} works well.` : ''}</span>
+        ${loc.problem !== 'temp' ? '<div class="btnrow"><button type="button" class="ghost sm" data-act="move-game">Move game</button></div>' : ''}</div>`;
+    }
+    if (longOff && ['choose', 'missing', 'ready', 'stopped'].includes(m)) {   // P's --check long_paths: the build writes paths past 260 characters
+      h += `<div class="alert bad"><b>Turn on long file paths first</b><span>The build writes some file paths longer than Windows' old 260-character limit, and Windows has long paths turned off, so the build would stop. Turn them on once with the button (Windows asks for permission), or open Terminal as administrator, paste the command, press Enter, then restart the launcher. On an account that isn't an administrator, Windows asks for an administrator's password: ask whoever looks after this PC to type it in once. Without it the game can't be built.</span>
+        <div class="btnrow"><button type="button" class="sm" data-act="longpaths-on">Turn it on</button><button type="button" class="ghost sm" data-act="copy-longpaths">Copy command</button></div></div>`;
+    }
+    if (pc && pc.ok === false && ['install', 'choose', 'missing', 'ready'].includes(m)) {
+      h += `<div class="alert bad"><b>This PC may not run the game</b><span>${esc(pc.message || '')}${pc.gpu ? ` (${esc(pc.gpu)})` : ''}</span></div>`;
+    }
+    return h;
+  }
+  let tipHidden = false;
+  // a per-PC convenience only (a hidden tip); real settings live in launcher.json via Rust
+  const store = (() => { try { return window['local' + 'Storage']; } catch (e) { return null; } })();
+  try { tipHidden = !!store && store.getItem('s3r-defender-tip') === 'hidden'; } catch (e) {}
+  function notesHtml() {
+    const list = upd && Array.isArray(upd.releases) && upd.releases.length ? upd.releases
+      : upd && upd.build && upd.notes && upd.notes.length ? [{ build: state === 'update' ? upd.build : upd.installed || upd.build, notes: upd.notes }] : null;
+    if (!list) return `<div class="head"><h2>What's new</h2></div>${noteList(NOTES)}`;
+    if (list.length === 1) return `<div class="head"><h2>What's new in version ${esc(list[0].build)}</h2></div>${noteList(list[0].notes)}`;
+    return `<div class="head"><h2>What's new since version ${esc(upd.installed || '')}</h2></div>${list.map(r => `<div class="ver-notes"><h3>Version ${esc(r.build)}</h3>${noteList(r.notes)}</div>`).join('')}`;
+  }
+  function renderSide(m) {
+    const a = alerts(m);
+    if (m === 'loading') return setSide('', '');
+    if (err && !['building', 'updating'].includes(m)) {
+      const lines = String(err.text || 'Unknown error').split('\n'), lead = lines[0];
+      const title = err.building ? (failedAt != null ? `Build stopped at step ${failedAt + 1} of ${steps.length}: ${steps[failedAt][0]}` : 'Build stopped') : 'Something went wrong';
+      return setSide('err' + err.n + err.building, `${a}<div class="errbox" role="alert"><h2>${esc(title)}</h2><p>${esc(lead)}</p>
+        ${err.building ? `<p class="fine">Finished steps are kept. Try again carries on from step ${(failedAt ?? 0) + 1}.</p>` : ''}
+        ${lines.length > 1 || err.building ? `<details><summary>Details</summary><pre>${esc(err.text)}</pre></details>` : ''}
+        <div class="btnrow">${err.building ? '<button type="button" class="primary-sm" data-act="retry">' + I.resume + 'Try again</button>' : ''}
+          <button type="button" class="ghost sm" data-act="copy-report">Copy report</button>
+          ${err.building || err.log ? '<button type="button" class="ghost sm" data-act="open-logs">Open logs folder</button>' : ''}
+          <button type="button" class="ghost sm" data-act="issue">Report on GitHub</button>
+          <button type="button" class="link" data-act="dismiss">Dismiss</button></div></div>`);
+    }
+    const missing = missingNow();
+    if (m === 'install' || m === 'choose') {
+      const at = m === 'install' ? 0 : 1;
+      const li = (i, b, s) => `<li class="${i < at ? 'done' : i === at ? 'now' : ''}"><b>${b}</b><span>${s}</span></li>`;
+      return setSide(m + a, `${a}<h2>Before you can play</h2><ol class="howto">
+        ${li(0, 'Install the game', 'Downloads the program, no game content: that comes from your own copies.')}
+        ${li(1, 'Choose your game files', 'The folders with your Skate 1, 2 and 3 discs, add-on packs and mods. The launcher names anything missing.')}
+        ${li(2, 'Build the game, once', 'Usually 30 to 60 minutes. You can keep using your PC.')}</ol>
+        <p class="fine">Your files are only read. Nothing is uploaded or changed.</p>
+        <button type="button" class="link" data-act="view" data-view="help">What do I need?</button>`);
+    }
+    if (m === 'missing') {
+      return setSide('miss' + missing.map(it => it.id).join() + a, `${a}<div class="head"><h2>${missing.length} files missing</h2></div>
+        <ul class="misslist">${missing.map(it => `<li><b>${esc(it.label)}</b><span>${esc(it.group)}</span></li>`).join('')}</ul>
+        <button type="button" class="ghost sm" data-act="view" data-view="files">Show where to get them</button>`);
+    }
+    if (m === 'ready' || m === 'stopped') {
+      const tip = !tipHidden && m === 'ready' ? `<div class="tip"><b>Build faster</b><span>Windows Security scans each of the build's tens of thousands of files. Excluding the game folder saves minutes, if you trust where the launcher came from.</span>
+        <div class="btnrow"><button type="button" class="ghost sm" data-act="defender">Open Windows Security</button><button type="button" class="ghost sm" data-act="copy-game">Copy folder path</button><button type="button" class="link" data-act="hide-tip">Hide</button></div></div>` : '';
+      return setSide(m + failedAt + range(est) + tip.length + a, `${a}<div class="head"><h2>Build plan</h2><span class="fine">${m === 'stopped' ? 'Stopped' : esc(range(est))}</span></div>${stepsHtml(m)}
+        <p class="fine">${m === 'stopped' ? `Resume build carries on from step ${failedAt + 1}.` : 'Runs once. If it stops, finished steps are kept.'}</p>${tip}`);
+    }
+    if (m === 'building') { if (!setSide('building', `<div class="head"><h2>Build plan</h2></div>${stepsHtml('building')}`)) liveSteps(); else liveSteps(); return; }
+    if (m === 'update' || m === 'updating') {
+      const cost = upd && (upd.size || upd.rebuild) ? `<p class="fine">${esc(costText())}</p>` : '';
+      const blocked = upd && upd.blocked && m === 'update' ? `<div class="alert"><b>Can't install yet</b><span>${esc(upd.blocked)}</span></div>` : '';
+      return setSide('u' + (upd && upd.build) + cost + blocked + a, `${a}${blocked}${notesHtml()}${cost}<button type="button" class="link" data-act="releases">All releases</button>`);
+    }
+    const offer = cfg.shortcut === false && m === 'play' ? '<button type="button" class="link" data-act="shortcut">Add a desktop shortcut</button>' : '';
+    setSide('p' + (upd && (upd.installed + '/' + (upd.notes || []).length)) + offer + a, `${a}${notesHtml()}<div class="btnrow"><button type="button" class="link" data-act="releases">All releases</button>${offer}</div>`);
+  }
+  function costText() {
+    if (!upd) return '';
+    const r = upd.rebuild, s = upd.size > 0 ? `${bytes(upd.size)} download` : '';
+    const b = !r ? '' : r.full ? `then a full rebuild, about ${dur(r.seconds || 2700)}` : r.steps ? `then rebuilds ${r.steps} step${r.steps > 1 ? 's' : ''}, about ${dur(r.seconds || 60)}` : 'nothing to rebuild';
+    return [s, b].filter(Boolean).join(', ').replace(/^then /, 'Then ') + '.';
+  }
+
+  // ---------- progress (build or update) ----------
+  function renderProg(m) {
+    const p = Math.floor(m === 'updating' ? (dl && dl.total ? 100 * dl.done / dl.total : 0) : progress);
+    $('pg-pct').textContent = p + '%';
+    $('pg-fill').style.transform = `scaleX(${p / 100})`;
+    $('pg-bar').setAttribute('aria-valuenow', p);
+    if (m === 'updating') {
+      const going = dl && dl.total && dl.done < dl.total;
+      setText($('pg-what'), going ? 'Downloading' : 'Installing');
+      $('pg-step').textContent = tx(going ? `${bytes(dl.done)} of ${bytes(dl.total)}${dl.speed ? ` · ${bytes(dl.speed)}/s` : ''}` : 'Checking every file');
+      $('pg-left').textContent = tx(going && dl.speed ? `About ${dur((dl.total - dl.done) / dl.speed)} left` : '');
+      $('stop').hidden = true;
+    } else {
+      const at = currentStep();
+      setText($('pg-what'), steps[at][0]);
+      $('pg-step').textContent = tx(`Step ${at + 1} of ${steps.length} · ${doing || steps[at][1]}`);
+      $('pg-left').textContent = tx(shownEta == null ? `${clock((performance.now() - buildStart) / 1000)} so far` : shownEta < 60 ? 'Almost done' : `About ${dur(shownEta)} left`);
+      $('stop').hidden = false; $('stop').disabled = stopping;
+      if (stopping) setText($('pg-what'), 'Stopping…');   // A2: until the tool's tree has exited
+    }
+  }
+
+  // ---------- render ----------
+  let ticker = null, queued = false;
+  // A10: progress lines and the 1 s tick come many a second; one render per frame covers them all. ponytail: user
+  // actions still render at once; rAF waits by itself while the window is hidden
+  function renderSoon() { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; render(); }); } }
+  function render() {
+    const m = mode();
+    app.dataset.state = state; app.dataset.mode = m;
+    const missing = missingNow(), progressing = m === 'building' || m === 'updating';
+    $('row-go').hidden = progressing; $('prog').hidden = !progressing;
+    if (!progressing) disarm($('stop'));
+    const sub = $('sub'), e = estText(est), shortOn = short(est);
+    $('play-old').hidden = true;
+    if (m === 'loading') { setStatus('run', 'Checking your files'); setGo('Checking…', 'loading', true); setText(sub, 'This takes a moment.'); }
+    else if (m === 'running') { setStatus('run', gameExt ? 'S3R is running (started outside the launcher)' : 'S3R is running'); setGo('Running', 'running', true);
+      setText(sub, 'Building and repairs wait until the game closes.'); }
+    else if (m === 'launching') { setStatus('run', 'Starting the game'); setGo('Starting', 'launching', true); setText(sub, ''); }
+    else if (m === 'install') { setStatus('warn', 'The game is not installed yet'); setGo(I.down + 'Install', 'install' + updating);
+      setText(sub, upd && upd.size ? `${bytes(upd.size)} download.` : 'About 110 MB download.'); }
+    else if (m === 'choose') { setStatus('warn', 'Game files needed'); setGo(I.folder + 'Choose files', 'choose'); setText(sub, 'Built from your own copies of Skate 1, 2 and 3.'); }
+    else if (m === 'missing') { setStatus(known() ? 'bad' : '', known() ? `${missing.length} of ${all.length} files missing` : 'Game files not checked yet');
+      setGo(I.folder + 'Find missing files', 'missing'); setText(sub, 'Add the folder that has them. Everything else is found.'); }
+    else if (m === 'ready') { shortOn ? setStatus('warn', `Not enough space on ${est.drive || 'the game drive'}`) : setStatus('ok', `All ${all.length} game files found`);
+      setGo(I.build + 'Build game', 'ready'); setText(sub, e ? `${e}` : 'You only build once.'); }
+    else if (m === 'stopped') { setStatus('warn', `Build stopped at step ${failedAt + 1} of ${steps.length}`); setGo(I.resume + 'Resume build', 'stopped');
+      setText(sub, failedAt ? `Steps 1 to ${failedAt} are kept.${e ? ' ' + e : ''}` : e || 'Finished steps are kept.'); }
+    else if (m === 'building') { setStatus('run', 'Building the game'); setText(sub, 'You can keep using your PC. Closing the launcher stops the build; finished steps are kept.'); renderProg(m); }
+    else if (m === 'updating') { setStatus('run', upd && upd.build ? `Updating to version ${upd.build}` : 'Updating'); setText(sub, 'You can keep using your PC.'); renderProg(m); }
+    else if (m === 'update') {
+      const ver = upd && upd.build ? `Version ${upd.build} is ready` : 'An update is ready';
+      upd && upd.blocked ? setStatus('warn', ver + ", but can't install yet") : setStatus('new', ver);
+      setGo(I.down + 'Update', 'update', !!(upd && upd.blocked)); setText(sub, costText() || 'Press Update to install it.');
+      // U1: a pending update never locks Play; the installed version still runs
+      $('play-old').hidden = false; $('play-old').textContent = tx(upd && upd.installed ? `Play version ${upd.installed}` : 'Play this version');
+    }
+    else { setStatus('ok', `${upd && upd.installed ? `Version ${upd.installed}` : 'Installed'} · Up to date`); setGo(I.play + 'Play', 'play');
+      setText(sub, checkedAt ? `Checked for updates ${ago()}.` : ''); }
+
+    renderSide(m);
+    updateFiles();
+    renderSettings();
+    $('files-dot').hidden = !(m === 'missing' || m === 'choose');
+    $('files-dot').textContent = m === 'choose' ? '!' : missing.length;
+    if (!menu.hidden) fillMenu();
+    if (state === 'building' && !ticker) ticker = setInterval(() => { tickEta(); renderSoon(); }, 1000);
+    else if (state !== 'building' && ticker) { clearInterval(ticker); ticker = null; }
+    kick();
+  }
+  function ago() {
+    const min = Math.floor((Date.now() - checkedAt) / 60000);
+    return min < 1 ? 'just now' : min < 60 ? `${min} min ago` : `at ${new Date(checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
+  function beginBuild() { progress = 0; step = 0; doing = ''; stepFill = null; eta = null; shownEta = null; fine = false; buildStart = performance.now(); lastTick = buildStart; }
+  let lastTick = performance.now();
+  function tickEta() {
+    const now = performance.now(), dt = (now - lastTick) / 1000;
+    lastTick = now;
+    if (eta == null) return;
+    const target = Math.max(0, eta - (now - etaAt) / 1000);
+    shownEta = shownEta == null ? target : Math.max(0, shownEta - dt);
+    shownEta += (target - shownEta) * 0.15;  // a new estimate moves the countdown over a few seconds, not in one jump
+  }
+
+  // ---------- files page ----------
+  $('groups').innerHTML = groups.map(g => `<details class="group">
+      <summary><div><h3>${esc(g.name)}</h3><span class="kind">${esc(g.kind)}</span></div><span class="count"></span></summary>
+      <div class="rows">${g.items.map(it => `<div class="row"><div class="nm">${g.items.length > 1 ? `<b>${esc(it.label)}</b>` : ''}<code></code>
+        <button type="button" class="link" data-act="guide" data-id="${it.id}">How do I get this?</button></div>
+        <span class="tag"></span><p class="hint" hidden></p></div>`).join('')}</div>
+      <p class="where"><b>Where to get it:</b> ${esc(g.where)}</p>
+    </details>`).join('');
+  const rows = [...document.querySelectorAll('#groups .row')], counts = [...document.querySelectorAll('#groups .count')];
+  const groupEls = [...$('groups').children], groupWas = [];
+  function updateFiles() {
+    let found = 0;
+    const status = all.map((it, k) => {
+      const f = items[it.id];
+      const s = scanning || !f ? 'wait' : f.status === 'ok' ? 'ok' : 'miss';
+      if (s === 'ok') found++;
+      const tag = rows[k].querySelector('.tag');
+      tag.textContent = tx(scanning ? 'Checking' : !f ? 'Not checked' : s === 'ok' ? 'Found' : f.status === 'mismatch' ? 'Not usable' : 'Missing');
+      tag.className = 'tag ' + s;
+      rows[k].querySelector('code').textContent = f && f.path ? f.path : '';
+      const hint = rows[k].querySelector('.hint');
+      hint.hidden = s !== 'miss';
+      if (s === 'miss') {  // the pipeline's details are clauses ("a different title update: ..."): one sentence each here
+        const d = f.detail ? f.detail[0].toUpperCase() + f.detail.slice(1) + (/[.!?]$/.test(f.detail) ? '' : '.') : 'Not found in the folders you picked.';
+        hint.textContent = tx(/check again\.$/.test(d) ? d : `${d} Add the folder that has it, then check again.`);
+      }
+      rows[k].style.order = s === 'miss' ? 0 : 1;
+      return s;
+    });
+    $('groups').classList.toggle('scanning', scanning);
+    let k = 0;
+    groups.forEach((g, gi) => {
+      const mine = status.slice(k, k += g.items.length);
+      const miss = mine.filter(s => s === 'miss').length, wait = mine.includes('wait');
+      counts[gi].textContent = tx(wait ? (scanning ? 'Checking' : 'Not checked') : miss ? `${miss} missing` : g.items.length > 1 ? `All ${g.items.length} found` : 'Found');
+      counts[gi].className = 'count' + (wait ? '' : miss ? ' bad' : ' ok');
+      // missing groups go first and open; complete ones fold away. Only on a change, so a group opened by hand stays open.
+      const now = wait ? 'wait' : miss ? 'miss' : 'ok';
+      if (groupWas[gi] !== now) { groupWas[gi] = now; groupEls[gi].open = now === 'miss'; groupEls[gi].style.order = now === 'miss' ? 0 : 1; }
+    });
+    const pk = folders.join('\n') + scanning + state;
+    if ($('pick').dataset.k !== pk) {
+      $('pick').dataset.k = pk;
+      const lock = state === 'building' ? ' disabled' : '';
+      $('pick').innerHTML = !folders.length ? `<div class="empty"><b>Choose the folder with your game files</b><span>It can be one folder that holds everything. The launcher looks inside every subfolder.</span>
+        <button type="button" class="primary-sm" data-act="add-folder"${lock}>${I.folder}Choose folder</button></div>`
+        : `<div class="panel"><h2>Folders with your game files</h2><div class="chips">${folders.map((f, i) => `<span class="chip">${esc(f)}<button type="button" aria-label="Remove ${esc(f)}" data-act="rm-folder" data-i="${i}"${lock}>${I.x}</button></span>`).join('')}</div>
+        <div class="btnrow"><button type="button" class="ghost" data-act="add-folder"${lock}>Add folder</button><button type="button" class="ghost" data-act="rescan"${scanning || lock ? ' disabled' : ''}>${scanning ? 'Checking…' : 'Check again'}</button></div></div>`;
+      localize($('pick'));
+    }
+    const miss = all.length - found;
+    const sk = [found, scanning, known(), state].join();
+    if ($('sum').dataset.k !== sk) {
+      $('sum').dataset.k = sk;
+      $('sum').innerHTML = scanning ? '<b>Checking your files…</b>' : !known() ? '<b>Not checked yet</b>'
+        : `<b>${found} of ${all.length} found</b><span>${miss ? `${miss} missing, shown first` : 'Everything is here.'}</span>${!miss && state === 'ready' ? '<span class="push"><button type="button" class="primary-sm" data-act="view" data-view="play">Go to Play</button></span>' : ''}`;
+      localize($('sum'));
+    }
+  }
+
+  // ---------- settings page ----------
+  const PILES = [
+    ['leftovers', 'Build leftovers', 'Unpacked discs and unfinished builds. Clearing them means a stopped build starts over.'],
+    ['temp', 'Temporary files', 'Left behind by stopped builds and checks. Always safe to clear.'],
+    ['audio', 'Audio and texture cache', 'Decoded game audio and textures. Each map loads a little slower the first time after clearing it.'],
+    ['logs', 'Logs', "Build logs. The latest build's logs are kept."],
+    ['crashes', 'Crash reports', 'Reports from game crashes.'],
+    ['cache', 'Build cache', 'Speeds up the next build after an update. Safe to clear.'],   // D4
+    ['tools', 'Build tools', 'Java and the other tools the build uses, downloaded again on the next build. ffmpeg is kept: the game plays its sound with it.'],
+  ];
+  let clearing = false;   // A1: from a Clear click until the next storage message
+  $('piles').innerHTML = PILES.map(([k, t, d]) => `<div class="srow"><div class="what"><b>${t}</b><span>${d}</span></div><span class="size" id="sz-${k}"></span>
+    ${k === 'logs' ? '<button type="button" class="ghost" data-act="open-logs">Open</button>' : ''}<button type="button" class="ghost" data-act="clear" data-what="${k}" data-confirm="Clear ${t.toLowerCase()}?">Clear</button></div>`).join('');
+  function renderSettings() {
+    $('game-dir').textContent = gameDir;
+    setText($('disk-t'), sizes && sizes.free >= 0 ? `${sizes.game > 0 ? `The game uses ${bytes(sizes.game)} · ` : ''}${bytes(sizes.free)} free on ${sizes.drive || 'this drive'}` : '');
+    const stop = holdUp();
+    PILES.forEach(([k]) => {
+      const n = sizes ? sizes[k] : undefined, b = document.querySelector(`[data-what="${k}"]`);
+      $('sz-' + k).textContent = n >= 0 ? (n ? bytes(n) : '0 MB') : '';
+      b.disabled = !!stop || clearing || n === 0;
+      b.title = stop;
+    });
+    document.querySelectorAll('[data-act="verify"],[data-act="rebuild"],[data-act="uninstall"],[data-act="uninstall-all"],[data-act="move-game"],[data-act="restore"],[data-act="reset-settings"]').forEach(b => {
+      if (b.closest('#menu')) return;
+      b.disabled = !!stop || loading; b.title = stop;
+    });
+    document.querySelector('#view-settings [data-act="safe"]').disabled = gameOn || launching || !(state === 'play' || state === 'update' && !first);
+    setText($('rebuild-t'), `Starts over from your game files.${est && est.max ? ` ${range(est)}.` : ''}`);
+    document.querySelectorAll('#seg-start button').forEach(b => b.setAttribute('aria-checked', b.dataset.value === cfg.on_game_start));
+    $('s-awake').checked = !!cfg.keep_awake; $('s-low').checked = !!cfg.low_priority; $('s-few').checked = !!cfg.fewer_resources;
+    $('s-tray').checked = !!cfg.minimize_to_tray;
+    $('shortcut-row').hidden = cfg.shortcut !== false;
+    const langs = Object.keys(LANGS);
+    $('lang-row').hidden = langs.length < 2;
+    $('about-v').textContent = tx(upd && upd.installed ? String(upd.installed) : 'not installed');
+  }
+
+  // ---------- gear menu (F18: arrow keys, Escape, focus returns to the gear) ----------
+  const menu = $('menu'), gear = $('gear');
+  function menuHtml() {
+    const built = state === 'play' || state === 'update' && !first, stop = holdUp(), why = s => s ? ` title="${esc(s)}"` : '';
+    const repair = !built ? 'Build the game first' : stop || 'Quick when nothing is wrong';
+    return `<button type="button" class="mi" role="menuitem" data-act="check"${checking || updating ? ' disabled' : ''}>${I.upd}<b>Check for updates</b><span>${checking ? 'Checking…' : checkedAt ? 'Last checked ' + ago() : 'Not checked yet'}</span></button>
+      <button type="button" class="mi" role="menuitem" data-act="verify"${built && !stop ? '' : ' disabled'}${why(stop)}>${I.shield}<b>Check and repair</b><span>${esc(repair)}</span></button>
+      <button type="button" class="mi" role="menuitem" data-act="open-game"${gameDir ? '' : ' disabled'}>${I.open}<b>Open game folder</b><span>${esc(gameDir || 'Not installed yet')}</span></button>
+      <button type="button" class="mi" role="menuitem" data-act="copy-times">${I.copy}<b>Copy build report</b><span>How the last build went on this PC</span></button>
+      <button type="button" class="mi" role="menuitem" data-act="bundle">${I.pack}<b>Save support file</b><span>Logs, reports and PC details in one zip</span></button>
+      <hr><button type="button" class="mi danger" role="menuitem" data-act="rebuild" data-confirm="Rebuild everything?"${(built || state === 'ready') && !stop ? '' : ' disabled'}${why(stop)}>${I.redo}<b>Rebuild everything</b><span>Starts over. ${esc(range(est) || 'Up to an hour')}</span></button>`;
+  }
+  function fillMenu() {
+    const h = menuHtml();
+    if (menu.dataset.h === h) return;
+    const at = [...menu.querySelectorAll('.mi')].indexOf(document.activeElement);
+    menu.dataset.h = h; menu.innerHTML = h; localize(menu);
+    if (at >= 0) { const b = menu.querySelectorAll('.mi')[at]; (b && !b.disabled ? b : gear).focus(); }
+  }
+  function openMenu() {
+    menu.dataset.h = ''; fillMenu(); menu.hidden = false; gear.setAttribute('aria-expanded', 'true');
+    const f = menu.querySelector('.mi:not(:disabled)'); f && f.focus();
+  }
+  function closeMenu(focusGear) {
+    if (menu.hidden) return;
+    menu.querySelectorAll('.armed').forEach(disarm);
+    menu.hidden = true; gear.setAttribute('aria-expanded', 'false');
+    if (focusGear) gear.focus();
+  }
+  menu.addEventListener('keydown', e => {
+    const list = [...menu.querySelectorAll('.mi:not(:disabled)')], i = list.indexOf(document.activeElement);
+    const go = n => { e.preventDefault(); list[(n + list.length) % list.length].focus(); };
+    if (e.key === 'ArrowDown') go(i + 1); else if (e.key === 'ArrowUp') go(i - 1);
+    else if (e.key === 'Home') go(0); else if (e.key === 'End') go(list.length - 1);
+    else if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); } else if (e.key === 'Tab') closeMenu();
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('#menu') && !e.target.closest('#gear')) closeMenu(); });
+
+  // ---------- navigation ----------
+  const navBtns = [...document.querySelectorAll('.navb')], views = [...document.querySelectorAll('.view')];
+  let view = '';
+  function show(v, quiet) {
+    closeMenu();
+    if (v === view) return;
+    view = v;
+    navBtns.forEach(b => b.dataset.view === v ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
+    views.forEach(p => {
+      const on = p.id === 'view-' + v;
+      if (on && p.hidden) { p.hidden = false; if (!quiet) { bump(p, 'enter'); const h = p.querySelector('h1'); h && h.focus({ preventScroll: true }); } }
+      else if (!on) p.hidden = true;
+    });
+    if (v === 'settings') send({ cmd: 'storage' });
+    if (v === 'play') size(); else kick();   // kick also holds the hero's clip while Play is out of sight
+  }
+
+  let toastT;
+  function toast(msg, long) { const t = $('toast'); t.textContent = tx(msg); t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), long ? 7000 : 3400); }
+  function copyText(text) {
+    try { if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).catch(() => copyBox(text)); return; } } catch (e) {}
+    copyBox(text);
+  }
+  function copyBox(text) {
+    const box = document.createElement('textarea');   // WebView2 gives this page no secure context, so fall back to a hidden box
+    box.value = text; box.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(box); box.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    box.remove();
+  }
+
+  // ---------- the board on the coping ----------
+  const lane = $('lane'), g = lane.getContext('2d');
+  let W = 0, H = 0;
+  const C = { ply: css('--ply'), grip: css('--grip-face'), bottom: css('--coping'), hi: css('--metal-hi'), lo: css('--metal-lo'), wheel: css('--chalk'), mark: css('--dust'), shadow: css('--shadow'), text: css('--chalk'), font: css('--display') };
+  const TRICKS = [
+    { name: 'Ollie', flip: 0, shove: 0 },
+    { name: 'Kickflip', flip: 1, shove: 0 },
+    { name: 'Heelflip', flip: -1, shove: 0 },
+    { name: 'Pop Shove-it', flip: 0, shove: .5 },
+    { name: 'Varial Kickflip', flip: 1, shove: .5 },
+    { name: '360 Flip', flip: 1, shove: 1 },
+  ];
+  const B = { x: null, wheel: 0, trick: null, labels: [], step: -1 };
+  const scale = () => Math.max(.65, Math.min(1, W / 1000));
+  const ease = p => p < .5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
+  const calm = () => still;
+  const ground = () => H - 36;
+  const target = () => { const half = 80 * scale(); return state === 'building' ? half + 30 + (W - 2 * half - 60) * progress / 100 : W * .72; };
+  // While the game runs, or Play is out of sight, the launcher draws and decodes nothing (lightweight, 10-13).
+  // Unfocused or minimized too (main.rs away; feature #2): an idle launcher in the background decodes nothing.
+  let away = false;
+  const asleep = () => gameOn || view !== 'play' || document.hidden || away;
+
+  // ---------- the player's own skater (hero.rs renders the clip with the game; it arrives as base64) ----------
+  // The game renders a seamless loop; it plays while Play is in view and he rides across the lane once per loop, entering
+  // off the left edge at t=0 and leaving off the right at the end, so the seam is never on screen. Animations off: the
+  // still frame where the board rests. A build hides him (the board rides the progress); any error brings the board back.
+  const clip = $('hero-clip');
+  let heroOn = false, heroStill = .3, heroResting = true, heroUrl = '', heroX = 0;
+  const heroMode = () => heroOn && state !== 'building';
+  const heroPlaying = () => heroMode() && !clip.paused;
+  function heroPlace() {
+    if (!heroOn || !W) return;
+    const w = clip.offsetWidth, d = clip.duration;
+    const x = calm() || !(d > 0) ? W * .72 - w / 2 : -w + (W + w) * (clip.currentTime % d) / d;
+    clip.style.transform = `translateX(${x}px)`; heroX = x + w / 2;
+  }
+  function heroSync() {
+    if (!heroOn) return;
+    if (!heroMode() || calm()) {   // Animations off or a build: the still frame; the next ride starts off the left edge
+      clip.pause(); heroResting = true;
+      const t = Math.min(heroStill, clip.duration || heroStill);
+      if (clip.readyState && Math.abs(clip.currentTime - t) > .01) clip.currentTime = t;
+    } else if (asleep()) clip.pause();   // out of sight or the game is running: hold where he is
+    else if (clip.paused) {
+      if (heroResting) { clip.currentTime = 0; heroResting = false; }
+      clip.play().catch(() => {});   // a refused play leaves the frame he is on; a broken clip ends in heroFail
+    }
+    heroPlace();
+  }
+  document.addEventListener('visibilitychange', kick);
+  function heroFail() {
+    heroOn = false; clip.hidden = true;
+    clip.removeAttribute('src'); if (heroUrl) { URL.revokeObjectURL(heroUrl); heroUrl = ''; }
+    B.x = target(); draw(); kick();
+  }
+  function heroClip(m) {
+    let raw;
+    try { raw = atob(m.webm || ''); } catch (e) { return heroFail(); }
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    if (heroUrl) URL.revokeObjectURL(heroUrl);
+    heroUrl = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }));
+    heroStill = typeof m.still === 'number' ? m.still : .3;
+    clip.src = heroUrl;
+  }
+  clip.addEventListener('loadeddata', () => { heroOn = true; heroResting = true; clip.hidden = false; size(); });
+  clip.addEventListener('error', heroFail);
+  clip.addEventListener('playing', kick);
+
+  function pop(name, force) {
+    if (calm() || !W || (B.trick && !force)) return;
+    const tr = TRICKS.find(t => t.name === name) || TRICKS[1 + Math.floor(Math.random() * (TRICKS.length - 1))];
+    B.trick = { ...tr, t: 0, dur: tr.flip || tr.shove ? .8 : .6 };
+    B.labels.push({ text: tr.name, x: B.x, age: 0 });
+    kick();
+  }
+  function size() {
+    const r = lane.getBoundingClientRect(), d = devicePixelRatio || 1;
+    W = r.width; H = r.height;
+    if (!W) return;
+    lane.width = Math.round(W * d); lane.height = Math.round(H * d);
+    g.setTransform(d, 0, 0, d, 0, 0);
+    if (B.x == null || calm()) B.x = target();
+    draw(); kick();
+  }
+  new ResizeObserver(size).observe(lane);
+
+  // ponytail: the loop runs only while the board rolls or a trick plays, so an idle launcher (and one left open while
+  // the game runs) draws nothing. render() and show('play') kick it.
+  let running = false, last = 0;
+  function kick() {
+    heroSync();
+    if (!W || asleep()) return;
+    if (calm()) { B.trick = null; B.labels = []; B.x = target(); draw(); return; }
+    if (!running) { running = true; last = performance.now(); requestAnimationFrame(roll); }
+  }
+  function roll(now) {
+    const dt = Math.max(0, Math.min(.05, (now - last) / 1000)); last = now;
+    if (asleep() || calm()) { running = false; return; }
+    const before = B.x, to = target();
+    B.x += (to - B.x) * Math.min(1, dt * 3);
+    if (Math.abs(to - B.x) < .3) B.x = to;
+    B.wheel += (B.x - before) / (6.5 * scale());
+    if (state === 'building') {   // an ollie at each new step of the plan
+      const st = currentStep();
+      if (B.step !== -1 && st !== B.step) pop('Ollie');
+      B.step = st;
+    } else B.step = -1;
+    if (B.trick && (B.trick.t += dt) >= B.trick.dur) B.trick = null;
+    B.labels.forEach(l => l.age += dt);
+    B.labels = B.labels.filter(l => l.age < 1.6);
+    if (heroPlaying()) heroPlace();
+    draw();
+    if (B.trick || B.labels.length || B.x !== to || heroPlaying()) requestAnimationFrame(roll); else running = false;
+  }
+
+  function drawBoard(x, y0, pitch, flip, shove, s) {
+    const c = Math.cos(flip), sn = Math.sin(flip), sx = Math.cos(shove);
+    const xs = Math.abs(sx) < .05 ? (sx < 0 ? -.05 : .05) : sx;
+    const face = Math.abs(sn) * 13;
+    g.save(); g.translate(x, y0); g.rotate(pitch); g.scale(s * xs, s);
+    const path = () => { g.beginPath(); g.moveTo(-77, -10 * c); g.quadraticCurveTo(-64, 0, -50, 0); g.lineTo(50, 0); g.quadraticCurveTo(64, 0, 77, -10 * c); };
+    const deck = () => {
+      g.lineCap = g.lineJoin = 'round';
+      if (face > 1.2) { path(); g.strokeStyle = sn > 0 ? C.grip : C.bottom; g.lineWidth = face * 2; g.stroke(); }
+      g.save(); g.translate(0, face * (sn > 0 ? .8 : -.8)); path(); g.strokeStyle = C.ply; g.lineWidth = 4.5; g.stroke(); g.restore();
+    };
+    const trucks = () => [-44, 44].forEach(tx => {
+      g.fillStyle = C.lo;
+      g.beginPath(); g.moveTo(tx - 7, 2 * c); g.lineTo(tx + 7, 2 * c); g.lineTo(tx + 3.5, 11 * c); g.lineTo(tx - 3.5, 11 * c); g.closePath(); g.fill();
+      g.fillStyle = C.hi; g.fillRect(tx - 10, 10 * c - 1.5, 20, 3);
+      const wy = 16 * c;
+      g.fillStyle = C.wheel; g.beginPath(); g.arc(tx, wy, 6.5, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = C.mark; g.lineWidth = 2; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(tx, wy); g.lineTo(tx + Math.cos(B.wheel) * 4.5, wy + Math.sin(B.wheel) * 4.5); g.stroke();
+    });
+    if (sn > 0) { trucks(); deck(); } else { deck(); trucks(); }
+    g.restore();
+  }
+
+  function draw() {
+    if (!W) return;
+    g.clearRect(0, 0, W, H);
+    const s = scale(), gy = ground();
+    const pipe = g.createLinearGradient(0, gy, 0, gy + 7);
+    pipe.addColorStop(0, C.hi); pipe.addColorStop(1, C.lo);
+    g.fillStyle = pipe; g.fillRect(0, gy, W, 7);
+    g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(0, gy + 7, W, H - gy - 7);
+
+    if (heroMode()) {   // the clip draws the skater and board; the lane keeps the coping and his shadow
+      g.fillStyle = C.shadow; g.globalAlpha = .45;
+      g.beginPath(); g.ellipse(heroX, gy - 1, 54, 3, 0, 0, Math.PI * 2); g.fill();
+      g.globalAlpha = 1;
+      return;
+    }
+    let y = 0, pitch = 0, flip = 0, shove = 0;
+    if (B.trick) {
+      const tr = B.trick, p = tr.t / tr.dur, e = ease(Math.min(1, Math.max(0, (p - .08) / .64)));
+      y = 52 * s * 4 * p * (1 - p);
+      pitch = -.5 * Math.sin(Math.PI * Math.min(1, p / .45));
+      flip = tr.flip * 2 * Math.PI * e; shove = tr.shove * 2 * Math.PI * e;
+    }
+    const k = 1 - Math.min(1, y / (90 * s));
+    g.fillStyle = C.shadow; g.globalAlpha = .15 + .4 * k;
+    g.beginPath(); g.ellipse(B.x, gy - 1, 62 * s * (.5 + .5 * k), 3, 0, 0, Math.PI * 2); g.fill();
+    g.globalAlpha = 1;
+    drawBoard(B.x, gy - 22.5 * s - y, pitch, flip, shove, s);
+
+    g.font = `700 ${Math.round(20 * s)}px ${C.font}`; g.textAlign = 'center'; g.fillStyle = C.text;
+    B.labels.forEach(l => {
+      g.globalAlpha = l.age < .15 ? l.age / .15 : l.age > 1.1 ? Math.max(0, 1 - (l.age - 1.1) / .5) : 1;
+      g.fillText(l.text.toUpperCase(), l.x, gy - 100 * s - l.age * 10);
+    });
+    g.globalAlpha = 1;
+  }
+
+  function setStill(v) {
+    if (v === still) return;
+    still = v;
+    root.classList.toggle('calm', still);
+    $('s-anim').checked = !still;
+    kick();
+  }
+  $('s-anim').checked = !still;
+  $('s-anim').addEventListener('change', e => {
+    setStill(!e.target.checked);
+    send({ cmd: 'set_animations', on: !still });
+    toast(still ? 'Animations off.' : 'Animations on.');
+  });
+  $('s-auto').addEventListener('change', e => {
+    send({ cmd: 'set_auto_update', on: e.target.checked });
+    toast(e.target.checked ? 'Updates install automatically.' : 'Updates wait for you to press Update.');
+  });
+  for (const id of ['s-awake', 's-low', 's-few', 's-tray']) $(id).addEventListener('change', e => { cfg[e.target.dataset.key] = e.target.checked; send({ cmd: 'set', key: e.target.dataset.key, value: e.target.checked }); });
+  $('s-lang').addEventListener('change', e => { send({ cmd: 'set', key: 'language', value: e.target.value }); cfg.language = e.target.value; setLang(e.target.value); render(); });
+
+  // Click the deck to call a trick on the 2D board (the player's own skater is already riding his loop).
+  function callTrick() { if (!heroMode()) pop(); }
+  $('view-play').addEventListener('click', e => { if (!e.target.closest('button, .side, a, summary, input')) callTrick(); });
+
+  // ---------- the window frame: drag by the title strip or the S3R mark, double-click to maximize, resize at the edges ----------
+  const frame = (op, dir) => send({ cmd: 'window', op, dir });
+  document.querySelectorAll('.wbtns button').forEach(b => b.addEventListener('click', () => frame(b.dataset.op)));
+  document.querySelectorAll('.titlebar, .mark').forEach(bar => {
+    // the second press of a double-click maximizes: the first one's drag owns the mouse, so dblclick never arrives
+    bar.addEventListener('mousedown', e => { if (e.button === 0 && !e.target.closest('button')) frame(e.detail === 2 ? 'maximize' : 'drag'); });
+  });
+  for (const dir of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
+    const edge = document.createElement('div');
+    edge.className = 'edge ' + dir;
+    edge.addEventListener('mousedown', e => { if (e.button === 0) frame('resize', dir); });
+    document.body.append(edge);
+  }
+  window.s3rMax = maxed => app.classList.toggle('maxed', maxed);
+
+  // A scan result: it can move the page between "missing" and "ready", but never interrupts a build or an update.
+  function applyItems(next) {
+    const was = state, asked = scanning;
+    items = next || {}; scanning = false;
+    const miss = missingNow().length;
+    if (state === 'missing' && !miss) state = 'ready';
+    else if (state === 'ready' && miss) state = 'missing';
+    render();
+    if (asked) toast(miss ? `${miss} of ${all.length} files are missing.` : was === 'missing' ? `All ${all.length} files found. Ready to build.` : `All ${all.length} files are still here.`);
+  }
+  // After a failed build: back to "ready", or to "missing" when the scan says files are gone.
+  const settle = () => { progress = 0; state = all.some(it => items[it.id] && items[it.id].status !== 'ok') ? 'missing' : 'ready'; };
+  let errN = 0;
+  const showError = (text, building, log) => { err = { text, building, log, n: ++errN }; show('play'); };
+
+  window.s3r = { on(m) {
+    if (m.type === 'state') {
+      // A2: Stop was pressed; the build view stays (Stop greyed) until the tool has exited and "ready" comes
+      if (m.state === 'stopping') { if (state === 'building') { stopping = true; disarm($('stop')); render(); } return; }
+      stopping = false;
+      const was = state;
+      loading = false; first = !!m.first;
+      state = updAvail && m.state === 'play' ? 'update' : m.state;   // the installed game still plays (U1); nothing else is hidden
+      if (state !== 'update') { updating = false; dl = null; }
+      if (state === 'play' || state === 'update') { failedAt = null; if (err) err.building = false; }   // e.g. an update that was undone
+      if (m.estimate) est = m.estimate;
+      if (m.sizes) sizes = m.sizes;
+      if ('long_paths' in m) longOff = m.long_paths === false;
+      if (state === 'building' && was !== 'building') { beginBuild(); err = null; }   // an automatic rebuild after an update starts here
+      else if (state !== 'play') { progress = 0; stepFill = null; eta = null; fine = false; }
+      render();
+    }
+    else if (m.type === 'settings') {
+      setStill(!m.animations);
+      $('s-auto').checked = !!m.auto_update;
+      for (const k of ['on_game_start', 'keep_awake', 'low_priority', 'fewer_resources', 'minimize_to_tray', 'shortcut', 'language']) if (k in m) cfg[k] = m[k];
+      $('ver').textContent = m.version === 'dev' ? 'dev' : 'version ' + m.version;
+      if (m.installed) upd = Object.assign({}, upd, { installed: m.installed });
+      if (LANGS[cfg.language] !== dict) { $('s-lang').innerHTML = Object.keys(LANGS).map(c => `<option value="${c}"${c === cfg.language ? ' selected' : ''}>${c}</option>`).join(''); setLang(cfg.language); }
+      render();
+    }
+    else if (m.type === 'items') { applyItems(m.items); }
+    else if (m.type === 'hero') { if (m.off) heroFail(); else heroClip(m); }   // off: hero.rs, the clip is out of date
+    else if (m.type === 'folders') { folders = m.folders || []; gameDir = m.game || gameDir; if (m.picked) scanning = true; render(); }
+    else if (m.type === 'stage') {
+      if (state !== 'building' || stopping) return;   // a late line after Cancel
+      const done = m.status === 'done' || m.status === 'skip';
+      if (!fine) progress = m.total ? Math.min(100, 100 * (m.index + (done ? 1 : .5)) / m.total) : 0;   // an older build tool
+      step = Math.max(0, Math.min(steps.length - 1, Number(m.step) || 0)); if (!fine) doing = ''; renderSoon();   // A10
+    }
+    else if (m.type === 'progress') {
+      if (state !== 'building' || stopping) return;
+      doing = m.text || '';
+      if (typeof m.percent === 'number') { progress = Math.max(0, Math.min(100, m.percent)); fine = true; }
+      if (Array.isArray(m.steps)) stepFill = m.steps;
+      eta = typeof m.eta === 'number' ? m.eta : null; etaAt = performance.now();
+      if (shownEta == null && eta != null) shownEta = eta;
+      renderSoon();   // A10
+    }
+    else if (m.type === 'done') {
+      state = updAvail ? 'update' : 'play'; progress = 0; failedAt = null; err = null; render();
+      if (!heroMode()) pop('Kickflip', true);   // the player's skater rides back in from the left (render -> kick)
+      toast(typeof m.seconds === 'number' ? `Game built in ${dur(m.seconds)}. See you in San Vanelona.` : 'Game built. See you in San Vanelona.');
+    }
+    else if (m.type === 'error') {
+      const building = state === 'building';
+      loading = false; scanning = false; updating = false; checking = false; dl = null;
+      if (m.scope === 'play') { launching = false; clearTimeout(launchT); }
+      if (m.scope) { render(); toast(m.message, true); }   // update or Play problems: say so, change nothing else
+      else { if (building) { failedAt = currentStep(); settle(); } showError(m.message, building, m.log); render(); }
+    }
+    else if (m.type === 'update') {
+      const installing = updating;
+      updating = false; checking = false; dl = null;
+      if (m.failed) { checkedAt = 0; render(); if (!m.quiet) toast(m.message, true); return; }
+      if (m.waiting_for_game) { updAvail = true; render(); return toast(`Update ${m.build} is ready: it installs when you close the game.`); }   // A13
+      if (m.build || m.installed) upd = { build: m.build || (upd && upd.build), installed: m.installed || (upd && upd.installed), notes: m.notes || [],
+        releases: m.releases, size: m.size, rebuild: m.rebuild, blocked: m.blocked || null };
+      updAvail = !!m.available;
+      if (m.available && state === 'play') state = 'update';
+      else if (!m.available && state === 'update' && !first) state = 'play';
+      checkedAt = Date.now(); render();
+      if (installing) toast(m.build ? `Updated to version ${m.build}.` : 'No new versions.');
+      else if (m.available && !first) toast(`Version ${m.build} is available.`);
+      else if (!m.quiet) toast('You have the latest version.');
+    }
+    else if (m.type === 'download') { dl = m; if (!updating) { updating = true; render(); } else renderProg('updating'); }   // an automatic install shows its download too
+    else if (m.type === 'game_running') {
+      gameOn = !!m.on; gameExt = !!m.external; launching = false; clearTimeout(launchT);
+      if (gameOn) closeMenu();
+      render();
+    }
+    else if (m.type === 'verify') {
+      toast(m.message || (m.ok ? `All ${m.files} game files are OK.` : `${m.bad} of ${m.files} files need repair. Rebuilding them.`), !m.ok);
+    }
+    else if (m.type === 'storage') { sizes = m; clearing = false; renderSettings(); }
+    else if (m.type === 'location') { loc = m.problem ? m : null; render(); }
+    else if (m.type === 'pc') { pc = m; render(); }
+    else if (m.type === 'toast') { toast(m.text); }
+    else if (m.type === 'away') { away = !!m.on; kick(); }
+    else if (m.type === 'playtime') {
+      const h = Math.floor(m.seconds / 3600), min = Math.floor(m.seconds / 60) % 60, el = $('playtime');
+      el.textContent = tx('Played') + ' ' + (h ? `${h} h ${min} min` : `${min} min`) + (m.refused ? ' (' + tx('the playtime file was edited, so it started again') + ')' : '');
+      el.hidden = !m.seconds && !m.refused;
+    }
+    else if (m.type === 'report') { copyText(m.text); toast(m.toast || 'Report copied. Paste it into a GitHub issue.'); }
+  } };
+
+  // fresh: run every stage again (Rebuild). Otherwise the pipeline resumes and only redoes what is out of date.
+  function startBuild(fresh) {
+    const stop = holdUp(); if (stop) return toast(stop);
+    err = null; failedAt = null; state = 'building'; beginBuild(); closeMenu(); render(); show('play');
+    send({ cmd: 'build', fresh: !!fresh });
+  }
+  function startUpdate() {
+    if (upd && upd.blocked) return toast(upd.blocked, true);
+    updating = true; dl = null; render(); show('play'); send({ cmd: 'update_now' });
+  }
+  function play(safe) {
+    if (gameOn || launching) return;
+    launching = true; callTrick(); render();
+    launchT = setTimeout(() => { launching = false; render(); }, 15000);   // an older launcher sends no game_running
+    send(safe ? { cmd: 'play', safe: true } : { cmd: 'play' });
+  }
+  function scan() { if (scanning || state === 'building') return; scanning = true; render(); send({ cmd: 'scan' }); }
+
+  // Two clicks for anything that throws work away: the first turns the button into the question, the second does it.
+  // It turns back after 5 s or when focus moves on.
+  function disarm(btn) {
+    if (!btn.dataset.ask) return;
+    clearTimeout(btn.armT); btn.innerHTML = btn.dataset.ask; delete btn.dataset.ask; btn.classList.remove('armed');
+  }
+  function armed(btn) {
+    if (!btn.dataset.confirm) return true;
+    if (btn.dataset.ask) { disarm(btn); return true; }
+    btn.dataset.ask = btn.innerHTML; btn.classList.add('armed');
+    const q = tx(btn.dataset.confirm);
+    if (btn.classList.contains('mi')) btn.querySelector('b').textContent = q; else btn.textContent = q;
+    btn.armT = setTimeout(() => disarm(btn), 5000);
+    return false;
+  }
+  document.addEventListener('focusout', e => { const b = e.target.closest && e.target.closest('[data-ask]'); if (b) disarm(b); });
+
+  // ---------- every button with a data-act, wherever it is (side panel and menu are rebuilt, so one listener) ----------
+  const ACT = {
+    go() {
+      const m = mode();
+      if (m === 'install' || m === 'update') { if (!updating) startUpdate(); }
+      else if (m === 'choose') { show('files'); send({ cmd: 'pick_folders', add: true }); }
+      else if (m === 'missing') show('files');
+      else if (m === 'ready' || m === 'stopped') { if (short(est)) toast(`Free up space on ${est.drive || 'the game drive'} first: the build needs ${bytes(est.need)}.`, true); else startBuild(false); }
+      else if (m === 'play') play();
+    },
+    gear() { if (!['launching', 'loading'].includes(mode())) menu.hidden ? openMenu() : closeMenu(true); },
+    'play-old'() { play(); },
+    stop() { send({ cmd: 'cancel' }); },
+    check() { closeMenu(); if (checking) return; checking = true; send({ cmd: 'check_updates' }); toast('Checking for updates…'); },
+    verify() { closeMenu(); const s = holdUp(); if (s) return toast(s); if (!(state === 'play' || state === 'ready' || state === 'update')) return toast('Build the game first.'); send({ cmd: 'verify' }); toast('Checking every game file…'); },
+    rebuild() { if (state === 'missing') return show('files'); startBuild(true); },
+    retry() { startBuild(false); },
+    dismiss() { err = null; render(); },
+    'open-game'() { closeMenu(); send({ cmd: 'open_folder', which: 'game' }); },
+    'open-logs'() { send({ cmd: 'open_folder', which: 'logs' }); },
+    'copy-times'() { closeMenu(); send({ cmd: 'copy_times' }); },
+    'copy-report'() { send({ cmd: 'copy_report' }); },
+    bundle() { closeMenu(); send({ cmd: 'support_bundle' }); },
+    issue() { send({ cmd: 'open', url: ISSUES }); },
+    releases() { send({ cmd: 'open', url: RELEASES }); },
+    discord() { send({ cmd: 'open', url: DISCORD }); },
+    guide(b) { send({ cmd: 'open', url: b.dataset.id ? `${GUIDE}#${b.dataset.id}` : GUIDE }); },
+    view(b) { show(b.dataset.view); },
+    'add-folder'() { send({ cmd: 'pick_folders', add: true }); },
+    'rm-folder'(b) { scanning = true; send({ cmd: 'remove_folder', index: +b.dataset.i }); render(); },
+    rescan: scan,
+    defender() { send({ cmd: 'open_defender' }); },
+    'copy-longpaths'() { copyText(LONG_PATHS); toast('Command copied. Paste it into Terminal opened as administrator.', true); },
+    'copy-game'() { copyText(gameDir); toast('Game folder path copied.'); },
+    'hide-tip'() { tipHidden = true; try { store && store.setItem('s3r-defender-tip', 'hidden'); } catch (e) {} render(); },
+    'move-game'() { const s = holdUp(); if (s) return toast(s); send({ cmd: 'move_game' }); },
+    uninstall() { send({ cmd: 'uninstall' }); },
+    'uninstall-all'() { send({ cmd: 'uninstall', all: true }); },
+    backup() { send({ cmd: 'backup_saves' }); },
+    restore() { const s = gameOn && 'Close the game first.'; if (s) return toast(s); send({ cmd: 'restore_saves' }); },
+    'reset-settings'() { send({ cmd: 'reset_game_settings' }); },
+    safe() { show('play'); play(true); },
+    clear(b) { clearing = true; renderSettings(); send({ cmd: 'clear', what: b.dataset.what });
+      setTimeout(() => { clearing = false; renderSettings(); }, 120000); },   // a storage answer that never came
+    'longpaths-on'() { toast('Windows asks for permission next.'); send({ cmd: 'long_paths_on' }); },   // B9
+    shortcut() { send({ cmd: 'shortcut' }); },
+    set(b) { cfg[b.dataset.key] = b.dataset.value; send({ cmd: 'set', key: b.dataset.key, value: b.dataset.value }); renderSettings(); },
+  };
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-act]');
+    if (!b || b.disabled || !ACT[b.dataset.act]) return;
+    if (b.getAttribute('aria-disabled') === 'true' && b.dataset.act === 'go') return;
+    if (armed(b)) ACT[b.dataset.act](b);
+  });
+  navBtns.forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
+
+  render();
+  send({ cmd: 'ready' });
+  const h = location.hash.slice(1);
+  show(['files', 'settings', 'help'].includes(h) ? h : 'play', true);
+  document.fonts && document.fonts.ready && document.fonts.ready.then(size);
+})();
+</script>

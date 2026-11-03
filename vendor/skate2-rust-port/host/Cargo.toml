@@ -1,0 +1,23 @@
+[package]
+name = "skate2-physics-host"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Runs the Skate 2 Rust port's simulation for the game, which links this library and runs it on a thread of its own (Amendment A); the binary is the headless test tool."
+
+[lib]
+name = "skate2_physics_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "skate2-physics-host"
+path = "src/main.rs"
+
+[dependencies]
+skate2-core = { path = "../crates/skate2-core" }
+skate2-formats = { path = "../crates/skate2-formats" }
+skate2-physics-protocol = { path = "../../../crates/skate2-physics-protocol" }
+
+[lints]
+workspace = true

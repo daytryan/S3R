@@ -1,0 +1,17 @@
+[package]
+name = "skate-net"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+blake3 = "=1.8.7"
+half = "=2.7.1"
+socket2 = "0.6"
+# Reserved names fold NFKC (roster::reserved); the game's own version, already in the lockfile.
+icu_normalizer = { version = "2.3.0", default-features = false, features = ["compiled_data"] }
+
+[dev-dependencies]
+skate-core.workspace = true

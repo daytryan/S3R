@@ -1,0 +1,5 @@
+{"me":{"id":76561190000000001,"name":"Tester"},
+ "friends":[
+  {"id":76561190000000011,"name":"FakeFriend Online","online":true,"connect":null},
+  {"id":76561190000000012,"name":"FakeFriend Skating","online":true,"connect":"sk8:109775241000000001:University"},
+  {"id":76561190000000013,"name":"FakeFriend Away","online":false,"connect":null}]}

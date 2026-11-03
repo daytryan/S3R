@@ -1,0 +1,47 @@
+//! Wipeout300's material corrections and collision-policy requests82D3EC08.
+use crate::physics::skeleton_controller::SkeletonControllerState;
+use skate_core::{
+    physics::skeleton_body::{
+        SkeletonBody, SkeletonCollisionFeedback, SkeletonCollisionMode, SkeletonJoints,
+    },
+    player::wipeout_state::{
+        State,
+        contact_response::{self, ContactResponse, ContactResponseInput},
+    },
+};
+
+pub(crate) fn update(
+    state: &mut State,
+    response: &mut ContactResponse,
+    body: &mut SkeletonBody,
+    feedback: &SkeletonCollisionFeedback,
+    controller: &mut SkeletonControllerState,
+    collision: &mut SkeletonCollisionMode,
+    joints: &mut SkeletonJoints,
+    ragdoll: &super::ragdoll::RagdollSetup,
+    contact: bool,
+    com_velocity: [f32; 4],
+    effective_axis: [f32; 4],
+    controls: [f32; 2],
+) -> Result<(), String> {
+    let output = response.update(
+        body,
+        ContactResponseInput {
+            com_velocity_608: com_velocity,
+            material10_normal: feedback
+                .flags
+                .material_10
+                .then_some(feedback.material_normals[0]),
+            material11_normal: feedback
+                .flags
+                .material_11
+                .then_some(feedback.material_normals[1]),
+            effective_axis_224: effective_axis,
+            wipeout_control_2824_2828: controls,
+        },
+    );
+    if let Some(requested) = contact_response::apply(state, output, contact) {
+        ragdoll.request(controller, requested, body, joints, collision)?;
+    }
+    Ok(())
+}

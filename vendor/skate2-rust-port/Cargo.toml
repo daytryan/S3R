@@ -1,0 +1,28 @@
+# Its own workspace, apart from the engine's: the port's 934k lines build once, in release, into their own
+# target folder (see VENDORED.md). The edition, license, rust-version and lints are the port's own (its Cargo.toml at
+# f72f2c13). The members are ours, and the release profile has no debug info and no incremental cache (the port's
+# has line tables and incremental), which keeps the target folder small on this PC.
+[workspace]
+resolver = "2"
+members = [
+    "crates/skate2-core",
+    "crates/skate2-formats",
+    "crates/skate2-net",
+    "host",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
+
+[profile.release]
+debug = 0
+incremental = false

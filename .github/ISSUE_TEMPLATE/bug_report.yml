@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in the launcher, the build or the game doesn't work.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Never attach ISOs, game files or anything else taken from the games** (no disc
+        images, DLC packages or extracted files).
+        Questions and quick help: [Discord](https://discord.gg/PC2W9K4xan).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: In the launcher, Settings > Launcher > About shows the launcher and game version.
+      placeholder: "Launcher version 10 · Game version 10"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead? Which map, if it was in the game?
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Report
+      description: |
+        A failed build: press **Copy report** in the launcher and paste it here.
+        A crash: press **Copy report** in the crash window and paste it here (reports are also saved in
+        `%LOCALAPPDATA%\Skate3RustEngine\CrashReports`). Folder names are already hidden; check it before posting.
+      render: text
+  - type: input
+    id: pc
+    attributes:
+      label: PC
+      description: Graphics card and Windows version.
+      placeholder: "RTX 3060, Windows 11 23H2"
+    validations:
+      required: true
+  - type: checkboxes
+    id: no-game-files
+    attributes:
+      label: Game files
+      options:
+        - label: I have not attached ISOs, game files or other content from the games.
+          required: true

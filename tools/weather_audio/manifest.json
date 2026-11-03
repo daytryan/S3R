@@ -1,0 +1,256 @@
+{
+ "version": 1,
+ "sample_rate": 48000,
+ "roles": {
+  "bed_light": [
+   {
+    "file": "bed_light_0.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -30.2,
+    "source": 845501
+   },
+   {
+    "file": "bed_light_1.ogg",
+    "channels": 1,
+    "loop": true,
+    "lufs": -32.1,
+    "source": 171980
+   }
+  ],
+  "bed_heavy": [
+   {
+    "file": "bed_heavy_0.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -30.4,
+    "source": 778364
+   },
+   {
+    "file": "bed_heavy_1.ogg",
+    "channels": 1,
+    "loop": true,
+    "lufs": -31.6,
+    "source": 171981
+   }
+  ],
+  "hard_light": [
+   {
+    "file": "hard_light_0.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -35.7,
+    "source": 119500
+   }
+  ],
+  "hard_heavy": [
+   {
+    "file": "hard_heavy_0.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -32.4,
+    "source": 483580
+   },
+   {
+    "file": "hard_heavy_1.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -32.3,
+    "source": 202899
+   },
+   {
+    "file": "hard_heavy_2.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -32.3,
+    "source": 637777
+   }
+  ],
+  "metal": [
+   {
+    "file": "metal_0.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -32.2,
+    "source": 611424
+   },
+   {
+    "file": "metal_1.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -32.4,
+    "source": 454142
+   }
+  ],
+  "wood": [
+   {
+    "file": "wood_0.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -33.6,
+    "source": 611421
+   }
+  ],
+  "water": [
+   {
+    "file": "water_0.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -32.3,
+    "source": 202898
+   }
+  ],
+  "foliage": [
+   {
+    "file": "foliage_0.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -32.3,
+    "source": 870824
+   },
+   {
+    "file": "foliage_1.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -32.3,
+    "source": 584268
+   },
+   {
+    "file": "foliage_2.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -32.3,
+    "source": 584272
+   },
+   {
+    "file": "foliage_3.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -32.3,
+    "source": 451154
+   }
+  ],
+  "roof_metal": [
+   {
+    "file": "roof_metal_0.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -28.2,
+    "source": 611424
+   },
+   {
+    "file": "roof_metal_1.ogg",
+    "channels": 1,
+    "loop": true,
+    "lufs": -28.3,
+    "source": 171979
+   }
+  ],
+  "roof_concrete": [
+   {
+    "file": "roof_concrete_0.ogg",
+    "channels": 1,
+    "loop": true,
+    "lufs": -29.3,
+    "source": 171983
+   },
+   {
+    "file": "roof_concrete_1.ogg",
+    "channels": 2,
+    "loop": true,
+    "lufs": -28.2,
+    "source": 398738
+   }
+  ],
+  "thunder_crack": [
+   {
+    "file": "thunder_crack_0.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -21.8,
+    "source": 567945
+   },
+   {
+    "file": "thunder_crack_1.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -20.0,
+    "source": 574412
+   },
+   {
+    "file": "thunder_crack_2.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -27.3,
+    "source": 534023
+   },
+   {
+    "file": "thunder_crack_3.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -20.0,
+    "source": 446753
+   }
+  ],
+  "thunder_roll": [
+   {
+    "file": "thunder_roll_0.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -28.0,
+    "source": 574416
+   },
+   {
+    "file": "thunder_roll_1.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -24.7,
+    "source": 717888
+   },
+   {
+    "file": "thunder_roll_2.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -23.6,
+    "source": 567746
+   },
+   {
+    "file": "thunder_roll_3.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -23.7,
+    "source": 476738
+   }
+  ],
+  "thunder_rumble": [
+   {
+    "file": "thunder_rumble_0.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -22.6,
+    "source": 577317
+   },
+   {
+    "file": "thunder_rumble_1.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -26.6,
+    "source": 577315
+   },
+   {
+    "file": "thunder_rumble_2.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -20.2,
+    "source": 778372
+   },
+   {
+    "file": "thunder_rumble_3.ogg",
+    "channels": 2,
+    "loop": false,
+    "lufs": -20.4,
+    "source": 169534
+   }
+  ]
+ }
+}

@@ -1,0 +1,459 @@
+//! Transactional world replacement: prepare without mutating the live session,
+//! then commit at a schedule boundary with gameplay suspended.
+use crate::{
+    config::Config,
+    map_library::Entry,
+    map_render::{PreparedScene, StreamedAssets},
+    physics::{GamePhysics, PlayerControls, SkaterRuntime},
+};
+use bevy::prelude::*;
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
+    thread::JoinHandle,
+    time::Instant,
+};
+
+/// Persistent character customisation can reapply after this set, while the
+/// transition still holds the loading overlay and gameplay remains suspended.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct MapTransitionSet;
+#[derive(Message)]
+pub(crate) struct WorldChanged {
+    pub generation: u64,
+}
+
+#[cfg(test)]
+#[path = "tests/map_transition.rs"]
+mod tests;
+
+#[derive(Resource, Debug)]
+pub(crate) struct CurrentMap {
+    pub path: Option<PathBuf>,
+    pub name: String,
+    pub spawn: [f32; 3],
+    pub heading: f32,
+    pub generation: u64,
+}
+impl CurrentMap {
+    fn from_package(path: Option<PathBuf>, map: Option<&skate_data::skate_map::SkateMap>) -> Self {
+        Self {
+            path,
+            name: map.map_or_else(|| "Test world".into(), |m| m.name.clone()),
+            spawn: map.map_or([0., crate::physics::ground::HEIGHT, 0.], |m| m.spawn),
+            heading: map.map_or(0., |m| m.heading),
+            generation: 0,
+        }
+    }
+}
+
+struct PreparedWorld {
+    map_fingerprint: u64,
+    scene: PreparedScene,
+    physics: GamePhysics,
+    skater: SkaterRuntime,
+    controls: PlayerControls,
+    camera: crate::camera::CameraRuntime,
+    metadata: CurrentMap,
+    retail: bool,
+    difficulty: crate::difficulty::Difficulty,
+}
+
+#[derive(Default)]
+enum Phase {
+    #[default]
+    Idle,
+    Requested(Entry),
+    Loading {
+        entry: Entry,
+        progress: Arc<AtomicU8>,
+        job: JoinHandle<Result<PreparedWorld, String>>,
+        streamed: StreamedAssets,
+    },
+    // The old world's GPU assets are released; the new ones go up a budget per
+    // frame. Two large cities do not fit in 4 GB together, and once their
+    // allocations interleave the Vulkan allocator cannot return the old
+    // memory, leaving the new map partly in system RAM until restart.
+    Uploading {
+        entry: Entry,
+        prepared: Box<PreparedWorld>,
+        streamed: StreamedAssets,
+    },
+    // Let extraction see the committed scene before releasing the pause menu.
+    Publishing {
+        frames: u8,
+        notice: String,
+    },
+}
+/// Who asked for a load (the career reads it to tell an arrival from the startup map). Online sessions and Party Play
+/// never load maps here: the map library refuses while a session is active.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Requester {
+    #[default]
+    MapLibrary,
+    Career,
+    Startup,
+}
+#[derive(Resource, Default)]
+pub(crate) struct MapTransition {
+    phase: Phase,
+    /// The latest load's requester; it stays after the load finishes.
+    requester: Requester,
+    /// The saved default map loading behind the boot (StartupMap): not the player's pick, so nothing is saved or said.
+    startup: bool,
+}
+/// G1: the saved default map, loaded through a transition from the test world while the boot screens play, instead
+/// of before the window opens (config::Config::from_env decides).
+#[derive(Resource)]
+pub(crate) struct StartupMap(pub PathBuf);
+/// When main() started, for SKATE_STARTUP_TIMING.
+pub(crate) static LAUNCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+fn startup_ms() -> u128 {
+    LAUNCH.get().map_or(0, |t| t.elapsed().as_millis())
+}
+fn request_startup(map: Option<Res<StartupMap>>, mut transition: ResMut<MapTransition>, mut time: ResMut<Time<Virtual>>) {
+    let Some(map) = map else { return };
+    let label = map.0.file_stem().map_or_else(String::new, |s| s.to_string_lossy().replace('_', " "));
+    transition.request_by(Entry { label, path: Some(map.0.clone()) }, Requester::Startup);
+    transition.startup = true;
+    // As a menu-started switch: the test world holds still until the map publishes (and the boot holds it after).
+    time.pause();
+}
+impl MapTransition {
+    pub fn busy(&self) -> bool {
+        !matches!(self.phase, Phase::Idle)
+    }
+    /// The saved default map is still loading behind the boot (Discord waits for its name).
+    pub fn startup(&self) -> bool {
+        self.startup
+    }
+    /// A load the player asked for in the map library.
+    pub fn request(&mut self, entry: Entry) {
+        self.request_by(entry, Requester::MapLibrary);
+    }
+    pub fn request_by(&mut self, entry: Entry, requester: Requester) {
+        if !self.busy() {
+            info!("MAP_TRANSITION_REQUESTED {:?}", entry.label);
+            self.phase = Phase::Requested(entry);
+            self.requester = requester;
+        }
+    }
+    pub fn requester(&self) -> Requester {
+        self.requester
+    }
+    pub fn label(&self) -> String {
+        match &self.phase {
+            Phase::Idle => String::new(),
+            Phase::Requested(entry) => format!("Loading {} — preparing…", entry.label),
+            Phase::Loading {
+                entry, progress, ..
+            } => format!(
+                "Loading {} — {}…",
+                entry.label,
+                match progress.load(Ordering::Relaxed) {
+                    0 => "reading and validating map",
+                    1 => "building collision and rendering",
+                    2 => "initializing skater, camera and rendering",
+                    _ => "finishing meshes, textures and sky",
+                }
+            ),
+            Phase::Uploading { entry, .. } => {
+                format!("Loading {} — uploading textures and meshes…", entry.label)
+            }
+            Phase::Publishing { .. } => "Loading — publishing the new world…".into(),
+        }
+    }
+}
+
+pub(crate) struct MapTransitionPlugin;
+impl Plugin for MapTransitionPlugin {
+    fn build(&self, app: &mut App) {
+        let config = app.world().resource::<Config>();
+        let current = CurrentMap::from_package(config.map_path.clone(), config.map.as_ref());
+        app.insert_resource(current)
+            .init_resource::<MapTransition>()
+            .add_message::<WorldChanged>()
+            .add_systems(Startup, request_startup)
+            .add_systems(
+                PreUpdate,
+                poll.in_set(MapTransitionSet)
+                    .after(crate::graphics_menu::MenuInput)
+                    .before(crate::input::poll_controllers),
+            )
+            .configure_sets(
+                FixedUpdate,
+                (
+                    crate::app::SimulationSet::Input,
+                    crate::app::SimulationSet::Controls,
+                    crate::app::SimulationSet::Physics,
+                )
+                    .run_if(crate::graphics_menu::simulation_active),
+            );
+    }
+}
+
+/// A Challenge Map trip to another map: the destination becomes the new
+/// skater's spawn, so nothing teleports after the load.
+/// Where the new world spawns the skater: the exact spot queued (a Challenge Map row's start, which wins over its
+/// teleport id), else the queued destination's matrix. Both are taken: the skater is built there, so no teleport runs
+/// before its first tick (which drags the body across the map from the package spawn: GamePhysics::load_at).
+fn take_pending_spot(world: &mut World) -> Option<[[f32; 4]; 4]> {
+    let mut travel = world.get_resource_mut::<crate::teleport_menu::Travel>()?;
+    let (id, exact) = (travel.pending.take(), travel.pending_matrix.take());
+    if exact.is_some() {
+        return exact;
+    }
+    let id = id?;
+    let root = world.resource::<Config>().asset_root.clone();
+    crate::teleport_menu::load(&root)
+        .ok()?
+        .into_iter()
+        .find(|d| d.id == id)?
+        .matrix
+}
+
+fn start(world: &World, entry: Entry, spot: Option<[[f32; 4]; 4]>) -> Result<Phase, String> {
+    let config = world.resource::<Config>();
+    let root = config.asset_root.clone();
+    let difficulty = config.difficulty;
+    let graphs = world
+        .resource::<crate::graph_runtime::StockGraphs>()
+        .clone();
+    let source = world.resource::<SkaterRuntime>().animation.source.clone();
+    let preferences = world.resource::<PlayerControls>().preferences;
+    let mut scene = PreparedScene::new(world);
+    let streamed = scene.stream();
+    let selected = entry.clone();
+    let progress = Arc::new(AtomicU8::new(0));
+    let stage = progress.clone();
+    let job = std::thread::Builder::new().name("map-loader".into()).spawn(move || {
+        let _span = info_span!("load_map_transition").entered();
+        info!("MAP_TRANSITION_LOADER_STARTED");
+        let started = Instant::now();
+        let (map, map_fingerprint) = match selected.path.as_deref() {
+            Some(path) => info_span!("read_map").in_scope(|| crate::config::load_map(path))
+                .map(|(map, fingerprint)| (Some(map), fingerprint))?,
+            None => (None, crate::config::map_fingerprint(None)?),
+        };
+        let read_time = started.elapsed();
+        let validation_started = Instant::now();
+        if let Some(map) = &map { crate::skate_world::validate_runtime(map)?; }
+        let validation_time = validation_started.elapsed();
+        let metadata = CurrentMap::from_package(selected.path, map.as_ref());
+        // The audio worker decodes the new district's ambience beds while the rest loads.
+        crate::skate_audio::player::announce_map(&metadata.name);
+        let retail = map.as_ref().is_some_and(|m| crate::retail_render::RetailScene::for_map(m));
+        // Both builders only read the decoded package. Reserve render handles
+        // on a second worker while the first constructs fresh simulation state;
+        // neither publishes to the live world until both have succeeded.
+        let (physics, skater, controls, camera, simulation_time, render_time) =
+            std::thread::scope(|scope| -> Result<_, String> {
+                let rendering = std::thread::Builder::new().name("map-render-loader".into())
+                    .spawn_scoped(scope, || {
+                        let render_started = Instant::now();
+                        scene.prepare(map.as_ref(), &root);
+                        render_started.elapsed()
+                    }).map_err(|e| format!("Could not start render loader: {e}"))?;
+                let simulation_started = Instant::now();
+                let simulation = (|| -> Result<_, String> {
+                    stage.store(1, Ordering::Relaxed);
+                    let physics = info_span!("load_physics").in_scope(|| GamePhysics::load_at(&root, map.as_ref(), difficulty, spot))?;
+                    stage.store(2, Ordering::Relaxed);
+                    let skater = SkaterRuntime::load_for_world(&root, &graphs, &physics, difficulty.key(), Some(source))?;
+                    let mut controls = PlayerControls::load(&root)?;
+                    controls.preferences = preferences;
+                    let camera = crate::camera::CameraRuntime::load(&root)?;
+                    Ok((physics, skater, controls, camera))
+                })();
+                let simulation_time = simulation_started.elapsed();
+                stage.store(3, Ordering::Relaxed);
+                // Explicitly join even on a simulation error: no background
+                // render work or reserved scene can outlive a failed request.
+                let render_time = rendering.join()
+                    .map_err(|_| "Map render preparation failed unexpectedly".to_string())?;
+                let (physics, skater, controls, camera) = simulation?;
+                Ok((physics, skater, controls, camera, simulation_time, render_time))
+            })?;
+        eprintln!("MAP_LOAD_TIMING name={:?} read_ms={} validation_ms={} simulation_ms={} render_ms={} prepare_ms={} parallel=true",
+            metadata.name, read_time.as_millis(), validation_time.as_millis(),
+            simulation_time.as_millis(), render_time.as_millis(), started.elapsed().as_millis());
+        info!("MAP_TRANSITION_LOADER_DONE");
+        // Drop the decoded package on this worker. Physics and rendering now
+        // own their data; retaining it would double large-city CPU memory.
+        Ok(PreparedWorld { map_fingerprint, scene, physics, skater, controls, camera, metadata, retail, difficulty })
+    }).map_err(|e| format!("Could not start map loader: {e}"))?;
+    Ok(Phase::Loading {
+        entry,
+        progress,
+        job,
+        streamed,
+    })
+}
+
+fn poll(world: &mut World) {
+    static FIRST_FRAME: std::sync::Once = std::sync::Once::new();
+    FIRST_FRAME.call_once(|| eprintln!("SKATE_STARTUP_TIMING first_frame_ms={}", startup_ms()));
+    let ready = world.resource_scope(|world, mut transition: Mut<MapTransition>| {
+        match &mut transition.phase {
+            Phase::Idle => false,
+            Phase::Loading { job, streamed, .. } => {
+                // The first map has no old world to keep up should it fail: its assets go up as they are built, rather
+                // than all waiting on the CPU for the loader to finish (v12 list 2: the Skate 1/2 cities peaked ~1.2 GB
+                // over their steady RAM at load). A failed load drops their handles and Bevy frees them.
+                if !world.contains_resource::<crate::map_render::MapAssets>() {
+                    streamed.drain(world);
+                }
+                job.is_finished()
+            }
+            // The finished loader has sent everything; publish expects it inserted.
+            Phase::Uploading { streamed, .. } => streamed.drain(world),
+            _ => true,
+        }
+    });
+    if !ready {
+        return;
+    }
+    let phase = std::mem::replace(
+        &mut world.resource_mut::<MapTransition>().phase,
+        Phase::Idle,
+    );
+    let next = match phase {
+        Phase::Requested(entry) => match {
+            let spot = take_pending_spot(world);
+            start(world, entry, spot)
+        } {
+            Ok(phase) => phase,
+            Err(error) => {
+                failed(world, error);
+                Phase::Idle
+            }
+        },
+        Phase::Loading {
+            entry,
+            job,
+            streamed,
+            ..
+        } => match job
+            .join()
+            .unwrap_or_else(|_| Err("Map loader failed unexpectedly".into()))
+        {
+            Ok(prepared) => {
+                // Every fallible step has succeeded, so the old world can go now.
+                crate::map_render::MapAssets::retire(world);
+                Phase::Uploading {
+                    entry,
+                    prepared: Box::new(prepared),
+                    streamed,
+                }
+            }
+            Err(error) => {
+                failed(world, error);
+                Phase::Idle
+            }
+        },
+        Phase::Uploading { prepared, .. } => {
+            let mut notice = commit(world, *prepared);
+            if world.resource::<MapTransition>().startup {
+                // Already the saved default; the player picked nothing, so the menu has nothing to say.
+                notice.clear();
+                let path = world.resource::<Config>().map_path.clone();
+                if let Some(mut menu) = world.get_resource_mut::<crate::graphics_menu::Menu>() {
+                    menu.select_map(path.as_deref());
+                }
+            } else {
+                let config = world.resource::<Config>();
+                match crate::map_library::save_default(&config.asset_root, config.map_path.as_deref()) {
+                    Ok(()) => notice.push_str(" Default map saved."),
+                    Err(error) => notice.push_str(&format!(" Could not save default: {error}")),
+                }
+            }
+            Phase::Publishing { frames: 3, notice }
+        }
+        Phase::Publishing { frames, notice } if frames > 0 => Phase::Publishing {
+            frames: frames - 1,
+            notice,
+        },
+        Phase::Publishing { notice, .. } => {
+            info!("MAP_TRANSITION_FINISHED");
+            if std::mem::take(&mut world.resource_mut::<MapTransition>().startup) {
+                eprintln!("SKATE_STARTUP_TIMING map_ready_ms={}", startup_ms());
+            }
+            world
+                .resource_mut::<crate::graphics_menu::Menu>()
+                .transition_finished(notice, true);
+            world.resource_mut::<Time<Virtual>>().unpause();
+            Phase::Idle
+        }
+        Phase::Idle => Phase::Idle,
+    };
+    world.resource_mut::<MapTransition>().phase = next;
+}
+
+fn failed(world: &mut World, error: String) {
+    warn!("MAP_TRANSITION_FAILED {error}");
+    // A default map that fails behind the boot leaves the test world, with this message in the menu.
+    world.resource_mut::<MapTransition>().startup = false;
+    world.resource_mut::<crate::graphics_menu::Menu>()
+        .transition_finished(format!("Could not load map: {error}\nPrevious world retained. Choose another map or Resume."), false);
+}
+
+fn commit(world: &mut World, mut prepared: PreparedWorld) -> String {
+    let publication_started = Instant::now();
+    prepared.metadata.generation = world.resource::<CurrentMap>().generation + 1;
+    // All fallible decoding/validation/construction finished before this point.
+    // No simulation system can observe a mixture of the two worlds.
+    crate::map_render::MapAssets::retire(world);
+    prepared.scene.publish(world);
+    crate::camera::set_world_environment(world, prepared.retail);
+    world.insert_resource(crate::retail_render::RetailScene(prepared.retail));
+    world.insert_resource(crate::grind_world::GrindGeometry::for_world(
+        prepared.metadata.path.is_none(),
+    ));
+    world.insert_resource(Time::<Fixed>::from_duration(prepared.physics.period()));
+    let root_transform = Transform::from_matrix(crate::animation::native_matrix(
+        prepared.skater.animated_skeleton.roots.animation_to_world,
+    ));
+    for mut transform in world
+        .query_filtered::<&mut Transform, With<crate::world::PlayerRoot>>()
+        .iter_mut(world)
+    {
+        *transform = root_transform;
+    }
+    world.insert_resource(prepared.physics);
+    world.insert_resource(prepared.skater);
+    world.insert_resource(prepared.controls);
+    world.insert_resource(prepared.camera);
+    world.insert_resource(crate::presentation::Presentation::default());
+    world.insert_resource(crate::replay::Replay::default());
+    world.insert_resource(crate::input::ControllerInput::default());
+    world.insert_resource(crate::input::PublishedTickInput::default());
+    world.resource_mut::<ButtonInput<KeyCode>>().reset_all();
+    world.resource_mut::<ButtonInput<MouseButton>>().reset_all();
+    let mut config = world.resource_mut::<Config>();
+    config.map_path = prepared.metadata.path.clone();
+    config.map_fingerprint = prepared.map_fingerprint;
+    config.difficulty = prepared.difficulty;
+    let notice = format!("Loaded {}.", prepared.metadata.name);
+    info!(
+        "MAP_TRANSITION_COMMITTED generation={} name={:?} spawn={:?} heading={} pid={}",
+        prepared.metadata.generation,
+        prepared.metadata.name,
+        prepared.metadata.spawn,
+        prepared.metadata.heading,
+        std::process::id()
+    );
+    if let Some(mut messages) = world.get_resource_mut::<Messages<WorldChanged>>() {
+        messages.write(WorldChanged {
+            generation: prepared.metadata.generation,
+        });
+    }
+    world.insert_resource(prepared.metadata);
+    eprintln!(
+        "MAP_PUBLISH_TIMING cpu_ms={}",
+        publication_started.elapsed().as_millis()
+    );
+    notice
+}

@@ -1,0 +1,155 @@
+/target/
+/bin/
+/logs/
+/.local/
+/settings/
+/data/
+__pycache__/
+*.pyc
+/assets/private/
+/maps/private/
+/maps/*.skate
+!/maps/format-demo.skate
+
+# Local extraction, animation authoring, archives and credentials.
+*.zip
+*.7z
+*.rar
+*.xex
+*.iso
+*.i64
+*.idb
+*.glb
+*.gltf
+*.fbx
+*.blend
+*.abin
+*.vlt
+*.stategraph
+*.rwcmset
+*.wav
+# Audio stays out of the repo, except the finished CC0 weather mix the weather-audio stage installs
+# (tools/prepare_weather_audio.py makes it from the user's Freesound downloads, which never publish).
+*.ogg
+!tools/weather_audio/*.ogg
+# Agent working folders: reverse-engineering extracts (decoded retail audio, decompiled scripts) must never publish.
+/.superpowers/
+!/crates/skate-data/tests/fixtures/retail-collision.rwcmset
+.env
+.env.*
+*.pem
+*.key
+
+# Personal feature-test launchers and historical setup reports.
+/BUILD-MULTIPLAYER-TEST.bat
+/PLAY-MULTIPLAYER-10-INSTANCES.bat
+/PLAY-MULTIPLAYER-2-INSTANCES.bat
+/PLAY-MULTIPLAYER-MENU.bat
+/PLAY-MULTIPLAYER-SMOOTH-2-INSTANCES.bat
+/PLAY-SESSION-MARKER.bat
+/tools/launch_customiser_test.bat
+/Build-SessionMarker.ps1
+/SETUP-PROVENANCE.json
+/LaunchPlants.bat
+# Third-party kart art: each user prepares their own (tools/prepare_mario_kart.py); never committed.
+/sdk/examples/mario-kart/rider.json
+/sdk/examples/mario-kart/kart.glb
+/mods/mario-kart.zip
+
+/mods/.cache/
+
+# Bundled mods requested for source checkout and distribution.
+!/mods/native-trainer.zip
+
+/BUILD-MULTIPLAYER-TEST.bat
+/Build-FakieFix.ps1
+/Build-FakieTrainer.ps1
+/Build-LuaSDK.ps1
+/Build-ModScrollbar.ps1
+/Build-ModWindows.ps1
+/Build-NativeTrainer.ps1
+/Build-ScrollSettings.ps1
+/Build-Showcase.ps1
+/Build-VehicleSDK.ps1
+/PLAY-FAKIE-FIX.bat
+/PLAY-FAKIE-TRAINER.bat
+/PLAY-LUA-SDK.bat
+/PLAY-MARIO-KART.bat
+/PLAY-MOD-SCROLLBAR.bat
+/PLAY-MOD-WINDOWS.bat
+/PLAY-MULTIPLAYER-10-INSTANCES.bat
+/PLAY-MULTIPLAYER-2-INSTANCES.bat
+/PLAY-MULTIPLAYER-MENU.bat
+/PLAY-MULTIPLAYER-SMOOTH-2-INSTANCES.bat
+/PLAY-NATIVE-TRAINER.bat
+/PLAY-SCROLL-SETTINGS.bat
+/PLAY-SHOWCASE.bat
+# Converter caches hold data extracted from the player's discs; dev scratch and build leftovers never publish.
+/tools/pipeline/skate2port/work/
+/tools/pipeline/scratch/
+/out/
+# Test screenshots of the running game (they show retail art); the four core-menu-*.png were committed earlier.
+/crates/skate-game/*.png
+
+# Release review 10-18 (legal): the retail disc folder and retail menu screenshots never publish.
+/Skate 3 (USA*/
+/crates/skate-game/core-menu-*.png
+
+# Skate 2 physics: data made from the user's disc never publishes, and the port builds in its own target folder.
+/private/
+/vendor/skate2-rust-port/target/
+
+# Agent and editor leftovers: tool folders, shortcuts, temp files and patch backups never publish.
+.claude/
+.impeccable/
+*.lnk
+*.tmp
+*.orig
+# Vendored crates keep crates.io's Cargo.toml.orig.
+!/vendor/**/Cargo.toml.orig
+# A private agent handoff note (it names local paths).
+/AUDIO_HANDOFF.md
+# Story-mode research scratch (scripts with local paths, not part of the build).
+/docs/superpowers/specs/skate3-story-mode-reference/work/
+
+# AI-written notes (investigations, handoffs, plans, audits) stay on this PC and never publish.
+# Any new Markdown file anywhere is ignored. The published guides are listed below, so a fresh clone has them too;
+# a new guide meant for players gets its own line here.
+*.md
+!/CONTRIBUTING.md
+!/README.md
+!/SECURITY.md
+!/crates/skate-launcher/ui/changelog.md
+!/docs/THIRD_PARTY_NOTICES.md
+!/docs/crash-reports.md
+!/docs/custom-models.md
+!/docs/installation.md
+!/docs/lua-modding.md
+!/docs/mixamo-to-skate.md
+!/docs/mixamo-vehicle-workflow.md
+!/docs/mod-packages.md
+!/docs/multiplayer-mods.md
+!/docs/performance-tracing.md
+!/docs/source-files-guide.md
+!/docs/updates.md
+!/docs/vehicle-sdk.md
+!/mods/README.md
+!/sdk/AGENTS.md
+!/sdk/README.md
+!/sdk/examples/freestyle-mx/README.md
+!/sdk/examples/mario-kart/README.md
+!/sdk/examples/native-trainer/README.md
+!/tools/owned_game/NOTICE.md
+!/tools/vendor/skate3_anim/PROVENANCE.md
+!/tools/vendor/university/LICENSE-PROJECT.md
+!/vendor/README.md
+!/vendor/bevy_core_pipeline/README.md
+!/vendor/bevy_pbr/README.md
+!/vendor/bevy_render/README.md
+!/vendor/bevy_sprite_render/README.md
+!/vendor/dlss_wgpu/CHANGELOG.md
+!/vendor/dlss_wgpu/README.md
+!/vendor/skate2-rust-port/VENDORED.md
+!/vendor/skate2-rust-port/crates/skate2-core/src/README.md
+!/vendor/wgpu-hal/README.md
+/docs/superpowers/

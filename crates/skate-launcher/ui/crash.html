@@ -1,0 +1,110 @@
+<title>S3R crash report</title>
+<style>
+/* the crash window (main.rs crash_window): the launcher's colours and type (launcher.html :root), one job */
+:root {
+  --grip: #131417;
+  --deck: #1b1d21;
+  --deck-2: #22252a;
+  --rail: #0e0f12;
+  --line: #2c2f36;
+  --chalk: #ecebe5;
+  --dust: #9a9da5;
+  --coping: #f4c234;
+  --coping-ink: #1b1505;
+  --bad: #ec5f5f;
+  --display: "Big Shoulders Display", Bahnschrift, "Arial Narrow", Impact, sans-serif;
+  --body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", "Cascadia Mono", ui-monospace, Consolas, monospace;
+  --snap: cubic-bezier(.2, .8, .2, 1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; background: var(--deck); color: var(--chalk); font: 15px/1.5 var(--body); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--coping); outline-offset: 2px; }
+p, h1, h2 { margin: 0; }
+@keyframes rise { from { opacity: .4; } }
+
+.titlebar { display: flex; align-items: center; gap: 12px; padding-left: 18px; min-height: 40px; border-bottom: 1px solid var(--line); background: var(--rail); user-select: none; }
+.mark { font: 900 20px/1 var(--display); letter-spacing: .02em; }
+.titlebar h1 { font: 700 14px/1 var(--body); letter-spacing: .02em; color: var(--dust); }
+.titlebar h1 b { color: var(--chalk); font-weight: 600; }
+.wbtns { margin-left: auto; display: flex; align-self: stretch; }
+.wbtns button { width: 46px; border: 0; background: none; color: var(--dust); display: grid; place-items: center; cursor: default; transition: background-color .15s, color .15s; }
+.wbtns button:hover { background: var(--deck-2); color: var(--chalk); }
+.wbtns button.close:hover { background: var(--bad); color: #fff; }
+.wbtns svg { width: 10px; height: 10px; }
+
+main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 22px 24px 20px; border-top: 3px solid var(--bad); }
+main { animation: rise .2s var(--snap); }
+.eyebrow { font: 600 14px/1.2 var(--body); color: var(--bad); }
+.head { font: 800 clamp(24px, 4.4vw, 32px)/1.05 var(--display); letter-spacing: .02em; text-transform: uppercase; overflow-wrap: anywhere; }
+.log { flex: 1; min-height: 0; margin: 0; overflow: auto; background: var(--grip); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font: 12px/1.55 var(--mono); color: var(--dust); white-space: pre; }
+.go { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.primary { border: 0; border-radius: 6px; background: var(--coping); color: var(--coping-ink); font: 900 19px/1 var(--display); letter-spacing: .04em; text-transform: uppercase; padding: 12px 22px 11px; cursor: pointer; box-shadow: inset 0 -3px 0 #c99a1c; transition: background-color .15s, transform .1s; }
+.primary:hover:not(:disabled) { background: #f7cd52; }
+.primary:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 -1px 0 #c99a1c; }
+.primary:disabled { cursor: default; filter: saturate(.4) brightness(.8); }
+.ghost { background: none; border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; color: var(--chalk); font-weight: 600; cursor: pointer; transition: border-color .2s, background-color .2s; }
+.ghost:hover { border-color: var(--dust); background: var(--deck-2); }
+.ghost.end { margin-left: auto; }
+.note { color: var(--dust); font-size: 13px; }
+.toast { position: fixed; left: 50%; bottom: 20px; translate: -50% 0; transform: translateY(14px) scale(.96); background: var(--chalk); color: var(--grip); font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 8px; max-width: calc(100% - 32px); opacity: 0; pointer-events: none; transition: opacity .25s, transform .35s var(--snap); }
+.toast.show { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { *, *::after { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="titlebar">
+  <span class="mark" aria-hidden="true">S3R</span>
+  <h1>S3R · <b>Crash report</b></h1>
+  <div class="wbtns">
+    <button type="button" data-op="minimize" aria-label="Minimize"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor"/></svg></button>
+    <button type="button" data-op="close" class="close" aria-label="Close"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"/></svg></button>
+  </div>
+</div>
+<main role="alert">
+  <p class="eyebrow">The game stopped</p>
+  <h2 class="head" id="head"></h2>
+  <pre class="log" id="log" tabindex="0" aria-label="Crash report"></pre>
+  <div>
+    <div class="go">
+      <button class="primary" type="button" id="send">Send report</button>
+      <button class="ghost" type="button" id="copy">Copy report</button>
+      <button class="ghost" type="button" id="folder">Open folder</button>
+      <button class="ghost end" type="button" data-op="close">Close</button>
+    </div>
+    <p class="note" style="margin-top:12px">Send report sends this text to the developers, nothing else. It has no file paths, names or account details.</p>
+  </div>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const report = window.S3R_CRASH || { name: '', text: '', summary: '' };   // main.rs crash_window puts it here
+  const send = m => { try { window.ipc.postMessage(JSON.stringify(m)); } catch (e) {} };
+  let toastT;
+  const toast = (text, long) => { const t = $('toast'); t.textContent = text; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), long ? 7000 : 2800); };
+  const setSend = (text, off) => { $('send').textContent = text; $('send').disabled = off; };
+
+  $('head').textContent = report.summary || 'The game stopped unexpectedly.';
+  $('log').textContent = report.text;
+
+  document.querySelectorAll('[data-op]').forEach(b => b.addEventListener('click', () => send({ cmd: 'window', op: b.dataset.op })));
+  document.querySelector('.titlebar').addEventListener('mousedown', e => { if (e.button === 0 && !e.target.closest('button')) send({ cmd: 'window', op: 'drag' }); });
+  $('send').addEventListener('click', () => { setSend('Sending…', true); send({ cmd: 'send_crash', name: report.name }); });
+  $('folder').addEventListener('click', () => send({ cmd: 'open_crash_folder', name: report.name }));
+  $('copy').addEventListener('click', () => {
+    const box = document.createElement('textarea');   // WebView2 gives this page no secure context: the clipboard API is out
+    box.value = report.text; box.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(box); box.select();
+    try { document.execCommand('copy'); toast('Report copied.'); } catch (e) { toast('Could not copy. Use Open folder.'); }
+    box.remove();
+  });
+  window.s3r = { on(m) {
+    if (m.type !== 'crash_sent') return;
+    if (m.ok) { setSend('Sent', true); toast('Report sent. Thanks, it helps get this fixed.'); }
+    else { setSend('Send report', false); toast(m.message, true); }
+  } };
+  $('send').focus();
+})();
+</script>

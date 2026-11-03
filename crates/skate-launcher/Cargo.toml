@@ -1,0 +1,27 @@
+[package]
+name = "skate-launcher"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "skate3-remaster"   # renamed to "Skate 3 Remaster.exe" by Build-Release.ps1
+path = "src/main.rs"
+
+[dependencies]
+tao = "0.34"
+wry = "0.53"
+rfd = "0.15"
+serde = { workspace = true }
+serde_json = { workspace = true }
+ureq = "2"
+# B1: ureq's own rustls and Mozilla roots (already in the tree), plus the Windows root store (update.rs tls())
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "0.26"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+ring = "0.17"  # ed25519 release signatures (update.rs RELEASE_KEY); already in the tree via rustls
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_System_JobObjects", "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp", "Win32_System_Power", "Win32_Storage_FileSystem", "Win32_UI_WindowsAndMessaging",
+    "Win32_System_SystemInformation", "Win32_System_LibraryLoader", "Win32_UI_Shell", "Win32_System_Com",
+    "Win32_Security_Cryptography", "Win32_System_Registry", "Win32_Graphics_Gdi"] }  # same version as socket2's; Gdi: tray.rs' window class
